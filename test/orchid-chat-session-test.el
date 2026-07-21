@@ -64,7 +64,7 @@
                  (setq captured-args args))))
       (let ((buf (orchid-chat-open-new "developer")))
         (unwind-protect
-            (should (equal (car captured-args) "create"))
+          (should (member "create" captured-args))
           (kill-buffer buf))))))
 
 (provide 'orchid-chat-session-test)

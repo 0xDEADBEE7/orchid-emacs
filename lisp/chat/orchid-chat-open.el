@@ -97,18 +97,15 @@
                (float-time (time-subtract (current-time) start-time)))
     chat-buffer))
 
-(defun orchid-chat-open-new (&optional persona)
-  "Open chat buffer for a new session with optional PERSONA.
-Creates the session immediately via `orchid create' + `orchid set',
-then activates the buffer so the first send goes straight to the live session."
+(defun orchid-chat-open-new (&optional policy prompt)
+  "Open chat buffer for a new session with optional POLICY and PROMPT."
   (let* ((full-dir (expand-file-name default-directory))
          (workspace-name (file-name-nondirectory (directory-file-name full-dir)))
-         (persona-str (or persona "none"))
-         (buffer-name (format "*orchid-chat-%s-%s-new*"
-                              (downcase persona-str)
-                              (downcase workspace-name)))
-         (buffer (generate-new-buffer buffer-name)))
-    (orchid-log "[open-new] persona=%S workspace=%S" persona full-dir)
+         (policy-str (or policy "default"))
+         (buffer (generate-new-buffer
+                  (format "*orchid-chat-%s-%s-new*"
+                          (downcase policy-str) (downcase workspace-name)))))
+    (orchid-log "[open-new] policy=%S prompt=%S workspace=%S" policy prompt full-dir)
     (with-current-buffer buffer
       (orchid-chat-mode)
       (orchid-chat--setup-buffer "pending" "pending")
@@ -116,39 +113,34 @@ then activates the buffer so the first send goes straight to the live session."
     (switch-to-buffer buffer)
     (goto-char (point-max))
     (orchid-core-create
-     :callback (lambda (create-result)
-                 (if (not (plist-get create-result :success))
-                     (when (buffer-live-p buffer)
-                       (with-current-buffer buffer
-                         (orchid-chat-insert-system-message
-                          (format "Failed to create session:\n%s"
-                                  (or (plist-get create-result :error)
-                                      (plist-get create-result :raw))))))
-                   (let* ((session-data (plist-get create-result :data))
-                          (session-id (plist-get session-data :id)))
-                     (orchid-log "[open-new] created %s, configuring" session-id)
-                     (orchid-core-set
-                      session-id
-                      :persona persona
-                      :working-dir full-dir
-                      :callback (lambda (_set-result)
-                                  (orchid-log "[open-new] set done, activating %s" session-id)
-                                  (when (buffer-live-p buffer)
-                                    (with-current-buffer buffer
-                                      (orchid-chat--open-new-activate
-                                       session-id buffer workspace-name persona)))))))))
+     :working-dir full-dir :policy policy :prompt prompt
+     :callback
+     (lambda (create-result)
+       (if (not (plist-get create-result :success))
+           (when (buffer-live-p buffer)
+             (with-current-buffer buffer
+               (orchid-chat-insert-system-message
+                (format "Failed to create session:\n%s"
+                        (or (plist-get create-result :error)
+                            (plist-get create-result :raw))))))
+         (let* ((session-data (plist-get create-result :data))
+                (session-id (plist-get session-data :id)))
+           (orchid-log "[open-new] created %s" session-id)
+           (when (buffer-live-p buffer)
+             (with-current-buffer buffer
+               (orchid-chat--open-new-activate
+                session-id buffer workspace-name policy prompt)))))))
     buffer))
 
-(defun orchid-chat--open-new-activate (session-id buffer workspace-name persona)
-  "Activate a freshly created SESSION-ID in BUFFER.
-WORKSPACE-NAME is the directory basename, PERSONA the persona name."
+(defun orchid-chat--open-new-activate (session-id buffer workspace-name policy _prompt)
+  "Activate a freshly created SESSION-ID in BUFFER."
   (require 'session/orchid-session)
   (require 'orchid-log)
   (let* ((session (orchid-session--read-metadata session-id))
-         (persona-or-profile (or persona (plist-get session :profile)))
+         (policy-name (or policy (plist-get session :policy)))
          (label (when workspace-name
-                  (if persona-or-profile
-                      (format "%s-%s" (downcase persona-or-profile) workspace-name)
+                  (if policy-name
+                      (format "%s-%s" (downcase policy-name) workspace-name)
                     workspace-name))))
     (orchid-session-register session)
     (setq orchid-chat--session-id session-id)
@@ -156,7 +148,7 @@ WORKSPACE-NAME is the directory basename, PERSONA the persona name."
     (orchid-chat--setup-buffer session-id session-id)
     (rename-buffer
      (format "*orchid-chat-%s-%s-%s*"
-             (downcase (or persona "default"))
+             (downcase (or policy "default"))
              (downcase workspace-name)
              (substring session-id (max 0 (- (length session-id) 5))))
      t)

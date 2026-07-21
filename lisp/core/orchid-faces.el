@@ -33,16 +33,6 @@
   "Face for Orchid action buttons."
   :group 'orchid-faces)
 
-(defface orchid-socket-view-header-face
-  '((t :inherit orchid-chat-separator-face))
-  "Face for the socket view collapsible header bar."
-  :group 'orchid-faces)
-
-(defface orchid-socket-view-border-face
-  '((t :inherit default))
-  "Face for the shell box borders and command line — matches user message stubs."
-  :group 'orchid-faces)
-
 (provide 'core/orchid-faces)
 
 ;;; orchid-faces.el ends here

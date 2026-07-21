@@ -17,7 +17,6 @@
 (require 'session/orchid-session)
 (require 'core/orchid-processing-indicator)
 (require 'core/orchid-collapsible)
-(require 'core/orchid-socket-view)
 (require 'log/orchid-logging)
 (require 'chat/orchid-chat-config)
 (require 'chat/orchid-chat-session)
@@ -31,7 +30,6 @@
 (declare-function orchid-chat-slash-maybe-open "chat/orchid-chat-slash")
 (declare-function orchid-chat--clear-slash-input "chat/orchid-chat-slash")
 (declare-function evil-define-key* "evil-core" (state keymap key def &rest bindings))
-(defvar orchid-socket-view--region-start)
 
 ;;; Buffer-Local Variables
 ;; orchid-chat--session-id is declared in chat/orchid-chat-config
@@ -64,12 +62,10 @@ Used to prevent duplicates when loading more history.")
 
 (defun orchid-chat-handle-tab ()
   "Handle TAB key press.
-If on a socket-view bar, toggle it.
 If on a collapsible section, toggle it.
 Otherwise, insert a tab character in the input area."
   (interactive)
   (cond
-   ((orchid-socket-view-toggle-at-point) t)
    ((orchid-collapsible-toggle-at-point) t)
    ((>= (point) orchid-chat--input-marker) (insert "\t"))
    (t (message "Use TAB on collapsible sections to expand/collapse them"))))
@@ -162,46 +158,15 @@ Cleanup is handled automatically by `kill-buffer-hook'."
 
 (defun orchid-chat--send-message ()
   "Send message from input area."
-  ;; Read input from after the bar, then tear down the sv region before
-  ;; inserting the stub — so the stub never lands inside the sv region.
-  (let ((message (orchid-chat--get-input-excluding-sv)))
-    (orchid-log "[send-message] sv-region-end=%s input-marker=%s message=%S"
-                (orchid-socket-view-region-end)
+  (let ((message (string-trim (or (orchid-chat--get-input) ""))))
+    (orchid-log "[send-message] input-marker=%s message=%S"
                 (and orchid-chat--input-marker (marker-position orchid-chat--input-marker))
                 message)
     (when message
-      ;; Create a marker at region-end BEFORE stop so it tracks the position
-      ;; through the deletion (integer snapshots shift when text is removed).
-      (let ((insert-marker (copy-marker
-                            (or (orchid-socket-view-region-end)
-                                (marker-position orchid-chat--input-marker)))))
-        (orchid-processing-stop)
-        (orchid-socket-view-stop)
-        ;; Re-anchor input-marker to the tracked position now that the
-        ;; sv region (and the shared marker) have been torn down.
-        (setq orchid-chat--input-marker insert-marker)
-        (set-marker-insertion-type orchid-chat--input-marker nil))
+      (orchid-processing-stop)
       (orchid-chat--display-user-message message)
       (orchid-chat--prepare-for-response)
       (orchid-chat--send-to-existing-session message))))
-
-(defun orchid-chat--get-input-excluding-sv ()
-  "Get input text typed after the socket-view bar.
-Reads from region-end (after the bar) to point-max when sv is active,
-otherwise falls back to input-marker.  Returns nil if empty."
-  (let* ((start (or (orchid-socket-view-region-end)
-                    (and orchid-chat--input-marker
-                         (marker-position orchid-chat--input-marker))))
-         (text (when start
-                 (string-trim
-                  (buffer-substring-no-properties start (point-max))))))
-    (orchid-log "[get-input] sv-active=%s start=%s point-max=%d text=%S"
-                (and orchid-socket-view--region-start
-                     (marker-buffer orchid-socket-view--region-start)
-                     t)
-                start (point-max) text)
-    (when (and text (not (string-empty-p text)))
-      text)))
 
 (defun orchid-chat-newline ()
   "Insert a newline in input area."

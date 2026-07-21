@@ -13,6 +13,7 @@
 ;;; Code:
 
 (require 'filenotify)
+(require 'core/orchid-core)
 (require 'session/orchid-session)
 (require 'log/orchid-logging)
 
@@ -57,7 +58,7 @@ Called by file-notify when metadata.json is written."
 
 (defun orchid-processing--attach-metadata-watch (metadata-path buf session-id attempt)
   "Attach file-notify watch on the session directory for BUF and SESSION-ID.
-METADATA-PATH is the full path to metadata.json.
+  METADATA-PATH is the full path to state.json.
 Watches the directory rather than the file so kqueue doesn't lose the watch
 when orchid rewrites metadata.json via atomic rename.
 If the directory does not exist yet, retry up to 20 times at 1s intervals."
@@ -68,30 +69,21 @@ If the directory does not exist yet, retry up to 20 times at 1s intervals."
         (with-current-buffer buf
           (setq orchid-processing--watch
                 (file-notify-add-watch
-                 session-dir
-                 '(change)
+                 session-dir '(change)
                  (lambda (event)
                    (let ((f2 (file-name-nondirectory (or (nth 2 event) "")))
                          (f3 (file-name-nondirectory (or (nth 3 event) ""))))
-                     (when (buffer-live-p buf)
-                       (cond
-                        ((or (string-equal "metadata.json" f2)
-                             (string-equal "metadata.json" f3))
-                         (with-current-buffer buf
-                           (orchid-processing--on-metadata-change event)))
-                        ((or (string-equal "stream.state" f2)
-                             (string-equal "stream.state" f3))
-                         (with-current-buffer buf
-                           (orchid-processing--refresh-chunk-count)
-                           (orchid-processing--update-display))))))))))))
+                     (when (and (buffer-live-p buf)
+                                (or (string-equal "state.json" f2)
+                                    (string-equal "state.json" f3)))
+                       (with-current-buffer buf
+                         (orchid-processing--on-metadata-change event))))))))))
      ((< attempt 20)
-      (run-with-timer
-       1 nil
-       (lambda ()
-         (orchid-processing--attach-metadata-watch
-          metadata-path buf session-id (1+ attempt)))))
-     (t
-      (orchid-log "Session dir never appeared for session %s after 20s" session-id)))))
+      (run-with-timer 1 nil
+                      (lambda ()
+                        (orchid-processing--attach-metadata-watch
+                         metadata-path buf session-id (1+ attempt)))))
+     (t (orchid-log "Session dir never appeared for session %s after 20s" session-id)))))
 
 (provide 'core/orchid-processing-watch)
 

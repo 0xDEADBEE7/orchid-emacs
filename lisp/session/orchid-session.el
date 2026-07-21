@@ -14,6 +14,8 @@
 ;;; Code:
 
 (require 'core/orchid-core)
+(require 'json)
+(require 'cl-lib)
 
 ;; Forward declarations to avoid circular dependencies
 (declare-function orchid-chat-open "orchid-chat" (session-id))
@@ -52,21 +54,20 @@ RUNNING is t when the session is active, nil when idle."
 ;;; Private Functions
 
 (defun orchid-session--read-metadata (session-id)
-  "Read and parse metadata.json for SESSION-ID.
-Returns a plist or nil if the file does not exist."
-  (let ((path (expand-file-name
-               (format "~/.config/orchid/conversations/%s/metadata.json"
-                       session-id))))
+  "Read metadata and runtime state for SESSION-ID and merge them.
+Metadata is identity/configuration; state supplies runtime fields."
+  (let ((path (orchid-core-session-metadata-path session-id))
+        (state-path (orchid-core-session-state-path session-id)))
     (when (file-exists-p path)
       (condition-case nil
-          (with-temp-buffer
-            (insert-file-contents path)
-            (if (fboundp 'json-parse-buffer)
-                (json-parse-buffer :object-type 'plist :array-type 'list)
-              (let ((json-object-type 'plist)
-                    (json-array-type 'list)
-                    (json-key-type 'keyword))
-                (json-read))))
+          (let ((metadata (with-temp-buffer
+                            (insert-file-contents path)
+                            (json-parse-buffer :object-type 'plist :array-type 'list)))
+                (state (when (file-exists-p state-path)
+                         (with-temp-buffer
+                           (insert-file-contents state-path)
+                           (json-parse-buffer :object-type 'plist :array-type 'list)))))
+            (if state (append state metadata) metadata))
         (error nil)))))
 
 (defun orchid-session--preserve-state (session)

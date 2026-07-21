@@ -46,8 +46,8 @@
 (require 'session/orchid-session)
 (require 'session/orchid-session-browser)
 
-(declare-function orchid-chat-open-new "orchid-chat" (&optional persona))
-(declare-function orchid-session-browser--fetch-personas "browser/orchid-browser-populate")
+(declare-function orchid-chat-open-new "orchid-chat" (&optional policy prompt))
+(declare-function orchid-session-browser--fetch-policies "browser/orchid-browser-populate")
 
 ;;; Customization
 
@@ -113,18 +113,13 @@ Refreshes from CLI and displays in messages buffer."
     (message "orchid CLI not found in PATH. Please install it.")))
 
 ;;;###autoload
-(defun orchid-new-session (&optional persona)
-  "Create new session with optional PERSONA.
-If PERSONA is not provided, prompt user to select from available personas."
+(defun orchid-new-session (&optional policy prompt)
+  "Create a new session with optional POLICY and PROMPT."
   (interactive
-   (list (let ((personas (orchid-session-browser--fetch-personas)))
-           (when personas
-             (let ((choice (completing-read "Persona (none for default profile): "
-                                           personas nil t)))
-               (when (not (string-empty-p choice))
-                 choice))))))
+   (let ((policies (orchid-session-browser--fetch-policies)))
+     (list (when policies (completing-read "Policy: " policies nil t)) nil)))
   (require 'orchid-chat)
-  (orchid-chat-open-new persona))
+  (orchid-chat-open-new policy prompt))
 
 ;;; Package Footer
 

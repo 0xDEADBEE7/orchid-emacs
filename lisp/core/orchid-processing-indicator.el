@@ -16,7 +16,6 @@
 (require 'log/orchid-logging)
 (require 'core/orchid-processing-watch)
 (require 'core/orchid-core)
-(require 'core/orchid-socket-view)
 
 ;;; Buffer-Local State
 
@@ -49,7 +48,7 @@
 Guards against false finish on the initial metadata write.")
 
 (defvar-local orchid-processing--chunk-count nil
-  "Latest chunk count read from stream.state, or nil if unavailable.")
+  "Deprecated compatibility slot for transcript-based output.")
 
 (defvar-local orchid-processing--chunk-baseline nil
   "Chunk count at the start of the current run, for relative display.")
@@ -63,18 +62,14 @@ Guards against false finish on the initial metadata write.")
     0))
 
 (defun orchid-processing--read-stream-state (session-id)
-  "Read chunk count from stream.state for SESSION-ID.
-File format: '<epoch> <count>' on a single line.
-Returns the integer packet count, or nil on error."
-  (condition-case nil
-      (with-temp-buffer
-        (insert-file-contents
-         (expand-file-name
-          (format "~/.config/orchid/conversations/%s/stream.state" session-id)))
-        (goto-char (point-min))
-        (when (re-search-forward "[[:space:]]+\\([0-9]+\\)" nil t)
-          (string-to-number (match-string 1))))
-    (error nil)))
+  "Read the current token estimate from state.json for SESSION-ID."
+  (let ((state-path (orchid-core-session-state-path session-id)))
+    (when (file-exists-p state-path)
+      (condition-case nil
+          (with-temp-buffer
+            (insert-file-contents state-path)
+            (plist-get (json-parse-buffer :object-type 'plist) :token_estimate))
+        (error nil)))))
 
 (defun orchid-processing--read-metadata (session-id)
   "Read and parse metadata.json for SESSION-ID.
@@ -82,8 +77,7 @@ Returns a plist or nil on error."
   (condition-case nil
       (with-temp-buffer
         (insert-file-contents
-         (expand-file-name
-          (format "~/.config/orchid/conversations/%s/metadata.json" session-id)))
+         (orchid-core-session-metadata-path session-id))
         (goto-char (point-min))
         (json-parse-buffer :object-type 'plist))
     (error nil)))
@@ -144,12 +138,12 @@ Left: status + chunk count.  Right: token estimate (or blank)."
 (defun orchid-processing-capture-chunk-baseline (session-id)
   "Capture current chunk count as the baseline for the next run.
 Call this just before starting a new run for SESSION-ID.
-If stream.state does not exist yet, baseline is set to 0."
+The old stream counter is no longer used; baseline is always zero."
   (setq orchid-processing--chunk-baseline
         (or (orchid-processing--read-stream-state session-id) 0)))
 
 (defun orchid-processing--refresh-chunk-count ()
-  "Read stream.state and update the cached chunk count."
+  "Refresh the cached runtime estimate from state.json."
   (when-let ((count (orchid-processing--read-stream-state orchid-processing--session-id)))
     (setq orchid-processing--chunk-count count)))
 
@@ -212,13 +206,11 @@ Optional START-TIME is a `float-time' value; defaults to now."
                                 (orchid-processing--update-display)
                                 (orchid-processing--check-status))))
                           (current-buffer)))
-    ;; Watch metadata.json for status changes.
+    ;; Watch state.json for status changes.
     (when orchid-processing--watch
       (file-notify-rm-watch orchid-processing--watch)
       (setq orchid-processing--watch nil))
-    (let* ((metadata-path (expand-file-name
-                           (format "~/.config/orchid/conversations/%s/metadata.json"
-                                   session-id)))
+    (let* ((metadata-path (orchid-core-session-state-path session-id))
            (buf (current-buffer)))
       (orchid-processing--attach-metadata-watch metadata-path buf session-id 0))))
   ;; Socket view is started by the caller after the separator is in place.
@@ -251,8 +243,6 @@ Call this when the run has already completed (e.g. after --await returns)."
     (setq orchid-processing--seen-running nil)
     (setq orchid-processing--chunk-count nil)
     (setq orchid-processing--chunk-baseline nil)
-    ;; Disconnect socket but keep the region — user may still expand/collapse it.
-    (orchid-socket-view-disconnect)
     ;; Move all windows showing this buffer to point-max so the user's cursor
     ;; lands in the editable input area after the sv bar, not inside the
     ;; response content that was streamed in before the bar.
@@ -305,7 +295,7 @@ ESTIMATE should be an integer token count, or nil to clear."
   (when orchid-processing--watch
     (file-notify-rm-watch orchid-processing--watch)
     (setq orchid-processing--watch nil))
-  (orchid-socket-view-stop))
+  nil)
 
 (provide 'core/orchid-processing-indicator)
 

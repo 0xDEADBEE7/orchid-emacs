@@ -118,6 +118,18 @@ Captures the last args list in `captured-args'."
      (should (plist-get result :success))
      (should (member "list" (car orchid-test-mock-cli-calls))))))
 
+(ert-deftest orchid-core-test-config-precedes-command ()
+  "The global config option must precede the CLI command name."
+  (should (equal '("--config" "/tmp/orchid-config" "list")
+                 (let ((orchid-core-config-dir "/tmp/orchid-config"))
+                   (orchid-core--with-config '("list"))))))
+
+(ert-deftest orchid-core-test-config-precedes-send-command ()
+  "The global config option must precede `send` and its positional message."
+  (should (equal '("--config" "/tmp/orchid-config" "send" "hello")
+                 (let ((orchid-core-config-dir "/tmp/orchid-config"))
+                   (orchid-core--with-config '("send" "hello"))))))
+
 ;;; send argument ordering
 
 (ert-deftest orchid-core-test-send-message-last ()
@@ -125,7 +137,7 @@ Captures the last args list in `captured-args'."
   (orchid-core-test--with-mock-execute 0 "{\"id\":\"new\"}"
     (orchid-core-send "hello" nil)
     (should (equal (car (last captured-args)) "hello"))
-    (should (equal (car captured-args) "send"))))
+    (should (member "send" captured-args))))
 
 (ert-deftest orchid-core-test-send-with-id-message-last ()
   "With --id flag, message must still be last."

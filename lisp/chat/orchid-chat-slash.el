@@ -9,6 +9,7 @@
 (require 'cl-lib)
 (require 'chat/orchid-chat-config)
 (require 'core/orchid-faces)
+(require 'core/orchid-core)
 (require 'session/orchid-session)
 
 (declare-function orchid-chat-open-new "chat/orchid-chat-open" ())
@@ -99,21 +100,17 @@
   "Open metadata.json for the current session."
   (when orchid-chat--session-id
     (find-file
-     (expand-file-name
-      (format "~/.config/orchid/conversations/%s/metadata.json"
-              orchid-chat--session-id)))))
+     (orchid-core-session-metadata-path orchid-chat--session-id))))
 
 (defun orchid-chat-slash--cmd-config ()
-  "Open global orchid config.json."
-  (find-file (expand-file-name "~/.config/orchid/config.json")))
+  "Open the selected Orchid configuration directory."
+  (dired (expand-file-name orchid-core-config-dir)))
 
 (defun orchid-chat-slash--cmd-logs ()
   "Open orchid.log for the current session."
   (when orchid-chat--session-id
     (find-file
-     (expand-file-name
-      (format "~/.config/orchid/conversations/%s/orchid.log"
-              orchid-chat--session-id)))))
+     (expand-file-name "orchid.log" orchid-core-config-dir))))
 
 (defun orchid-chat-slash--cmd-kill ()
   "Stop the running process for the current session."
@@ -130,18 +127,16 @@
   (require 'chat/orchid-chat-open)
   (let* ((session (when orchid-chat--session-id
                     (orchid-session-get orchid-chat--session-id)))
-         (persona    (when session (plist-get session :persona)))
+         (policy     (when session (plist-get session :policy)))
          (workdir    (when session (or (plist-get session :working_dir)
                                        (plist-get session :workspace)))))
     (let ((default-directory (or workdir default-directory)))
-      (orchid-chat-open-new persona))))
+      (orchid-chat-open-new policy (plist-get session :prompt)))))
 
 (defun orchid-chat-slash--cmd-scope-escape ()
   "Toggle allow_scope_escape in metadata.json for the current session."
   (when orchid-chat--session-id
-    (let* ((path (expand-file-name
-                  (format "~/.config/orchid/conversations/%s/metadata.json"
-                          orchid-chat--session-id)))
+    (let* ((path (orchid-core-session-metadata-path orchid-chat--session-id))
            (meta (when (file-exists-p path)
                    (condition-case nil
                        (with-temp-buffer

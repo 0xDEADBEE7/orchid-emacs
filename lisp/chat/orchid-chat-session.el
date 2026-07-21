@@ -17,7 +17,6 @@
 (require 'orchid-log)
 (require 'core/orchid-faces)
 (require 'core/orchid-processing-indicator)
-(require 'core/orchid-socket-view)
 (require 'log/orchid-logging)
 (require 'chat/orchid-chat-config)
 
@@ -36,13 +35,12 @@
 (defvar orchid-chat--history-cursor)
 (defvar orchid-chat--input-marker)
 (defvar orchid-chat--loaded-event-ids)
-(defvar orchid-socket-view--region-end)
 
 (defun orchid-chat--format-buffer-name (session-id session)
   "Format buffer name for SESSION-ID with SESSION data.
-Format: *orchid-chat-<persona>-<workspace-dir>-<last-5-digits>*
+Format: *orchid-chat-<policy>-<workspace-dir>-<last-5-digits>*
 Uses only the last directory name of the workspace path."
-  (let* ((persona (or (plist-get session :persona) "default"))
+  (let* ((policy (or (plist-get session :policy) "default"))
          (workspace-path (or (plist-get session :working_dir)
                              (plist-get session :workspace)
                              "none"))
@@ -54,23 +52,21 @@ Uses only the last directory name of the workspace path."
                          (substring session-id (- (length session-id) 5))
                        session-id)))
     (format "*orchid-chat-%s-%s-%s*"
-            (downcase persona)
+            (downcase policy)
             (downcase workspace-dir)
             hash-suffix)))
 
 (defun orchid-chat--format-header-metadata (session-id &optional session)
   "Format metadata section for SESSION-ID.
 Uses SESSION plist if provided, otherwise fetches from registry.
-Returns formatted string with workspace, persona, and open-logs button."
+Returns formatted string with workspace, policy, and open-logs button."
   (let* ((s (or session (orchid-session-get session-id)))
-         (persona (or (plist-get s :persona) "default"))
+         (policy (or (plist-get s :policy) "default"))
          (workspace (or (plist-get s :working_dir)
                         (plist-get s :workspace)
                         "N/A"))
-         (meta-path (expand-file-name
-                     (format "~/.config/orchid/conversations/%s/metadata.json"
-                             session-id)))
-         (config-path (expand-file-name "~/.config/orchid/config.json"))
+         (meta-path (orchid-core-session-metadata-path session-id))
+         (config-path (expand-file-name orchid-core-config-dir))
          (meta-button (propertize "[META]"
                                   'face 'orchid-button
                                   'mouse-face 'highlight
@@ -97,9 +93,9 @@ Returns formatted string with workspace, persona, and open-logs button."
                                                   (find-file config-path)))
                                               map)
                                     'rear-nonsticky t)))
-    (format "Workspace: %s\nPersona: %s\n%s  %s\n"
+    (format "Workspace: %s\nPolicy: %s\n%s  %s\n"
             (propertize workspace 'face 'font-lock-string-face)
-            (propertize persona 'face 'font-lock-keyword-face)
+            (propertize policy 'face 'font-lock-keyword-face)
             meta-button
             config-button)))
 
@@ -175,19 +171,9 @@ PROCESS-RUNNING indicates if session has active process."
                          'read-only t
                          'rear-nonsticky t))
       (insert "\n")
-      ;; orchid-socket-view-start uses save-excursion internally — point stays
-      ;; at the pre-bar position.  Mirror orchid-chat--prepare-for-response:
-      ;; insert the sentinel \n at region-end (after the bar) by temporarily
-      ;; setting insertion-type nil, then use region-end as input-marker.
-      (orchid-socket-view-start orchid-chat--session-id (point))
-      (set-marker-insertion-type orchid-socket-view--region-end nil)
-      (save-excursion
-        (goto-char (marker-position orchid-socket-view--region-end))
-        (insert "\n"))
-      (set-marker-insertion-type orchid-socket-view--region-end t)
-      (setq orchid-chat--input-marker orchid-socket-view--region-end)
-      (orchid-chat--init-assistant-cursor
-       (marker-position orchid-socket-view--region-end))
+      (setq orchid-chat--input-marker (point-marker))
+      (set-marker-insertion-type orchid-chat--input-marker nil)
+      (orchid-chat--init-assistant-cursor (point))
       (goto-char (point-max)))
     (when process-running
       (setq orchid-chat--input-marker (point-marker))
@@ -213,8 +199,7 @@ RUN-STARTED-STR is an ISO-8601 timestamp string for the run start time."
     (insert "\n")
     (setq orchid-chat--input-marker (point-marker))
     (set-marker-insertion-type orchid-chat--input-marker nil)
-    ;; Socket view bar sits directly after the separator.
-    (orchid-socket-view-start session-id (point))))
+    (orchid-chat--init-assistant-cursor (point))))
 
 (defun orchid-chat--start-log-monitoring (session-id buffer)
   "Start log monitoring for SESSION-ID, inserting events into BUFFER."

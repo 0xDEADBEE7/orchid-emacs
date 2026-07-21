@@ -1,5 +1,5 @@
 EMACS ?= emacs
-SEEK_PATH = $(shell cd ../.. && pwd)/lisp/seek
+SEEK_PATH = $(shell cd .. && pwd)/seek
 BATCH = $(EMACS) --batch -Q -L lisp -L test -L $(SEEK_PATH)
 
 UNIT_TESTS = \
@@ -16,8 +16,7 @@ UNIT_TESTS = \
 	test/orchid-browser-format-test.el \
 	test/orchid-chat-send-test.el \
 	test/orchid-processing-indicator-test.el \
-	test/orchid-chat-display-test.el \
-	test/orchid-socket-view-test.el
+	test/orchid-chat-display-test.el
 
 LISP_SOURCES = \
 	$(wildcard lisp/*.el) \

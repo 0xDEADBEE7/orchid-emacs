@@ -59,27 +59,17 @@
   (when orchid-session-browser--row-strings
     (remhash session-id orchid-session-browser--row-strings)))
 
-(defvar orchid-session-browser-config-path
-  (expand-file-name "~/.config/orchid/config.json")
-  "Path to the orchid config.json file.")
+(defun orchid-session-browser--fetch-policies (&optional callback)
+  "Return policy resource names, optionally asynchronously."
+  (let ((result (orchid-core-list-policies callback)))
+    (when (and result (plist-get result :success))
+      (plist-get result :data))))
 
-(defun orchid-session-browser--fetch-personas ()
-  "Return list of persona name strings from `orchid-session-browser-config-path'."
-  (let ((config-path orchid-session-browser-config-path))
-    (when (file-exists-p config-path)
-      (condition-case nil
-          (let* ((config (with-temp-buffer
-                           (insert-file-contents config-path)
-                           (json-parse-buffer :object-type 'plist :array-type 'list)))
-                 (personas-map (plist-get config :personas))
-                 (result nil))
-            (while personas-map
-              (let ((key (car personas-map)))
-                (when (keywordp key)
-                  (setq result (cons (substring (symbol-name key) 1) result))))
-              (setq personas-map (cddr personas-map)))
-            (nreverse result))
-        (error nil)))))
+(defun orchid-session-browser--fetch-prompts (&optional callback)
+  "Return prompt resource names, optionally asynchronously."
+  (let ((result (orchid-core-list-prompts callback)))
+    (when (and result (plist-get result :success))
+      (plist-get result :data))))
 
 (defun orchid-session-browser--sort-sessions (sessions)
   "Sort SESSIONS by updated_at date, most recent first."

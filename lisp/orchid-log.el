@@ -13,6 +13,7 @@
 ;;; Code:
 
 (require 'autorevert)
+(require 'core/orchid-core)
 (require 'log/orchid-logging)
 (require 'log/orchid-log-registry)
 (require 'log/orchid-log-restore)
@@ -63,8 +64,7 @@ In restore mode, user text messages are displayed (normally filtered).")
 
 (defun orchid-log--conversation-file (session-id)
   "Return path to conversation.jsonl for SESSION-ID."
-  (expand-file-name
-   (format "~/.config/orchid/conversations/%s/conversation.jsonl" session-id)))
+  (orchid-core-session-conversation-path session-id))
 
 (defun orchid-log--find-file (session-id)
   "Return conversation log path for SESSION-ID, erroring if not found."

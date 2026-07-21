@@ -35,9 +35,7 @@ Returns \"N/A\" if BYTES is nil."
   "Get file size of conversation log for SESSION-ID in bytes.
 Returns nil if not found."
   (condition-case nil
-      (let ((path (expand-file-name
-                   (format "~/.config/orchid/conversations/%s/conversation.jsonl"
-                           session-id))))
+      (let ((path (orchid-core-session-conversation-path session-id)))
         (when (file-exists-p path)
           (nth 7 (file-attributes path))))
     (error nil)))
@@ -77,10 +75,9 @@ Returns \"N/A\" if timestamp is nil or invalid."
             (puthash key result orchid-browser--relative-time-cache)
             result)))))
 
-(defun orchid-browser-format-persona (session)
-  "Get persona name from SESSION.
-Returns persona name or \"default\" if not found."
-  (or (plist-get session :persona) "default"))
+(defun orchid-browser-format-policy (session)
+  "Get policy name from SESSION, or the default marker."
+  (or (plist-get session :policy) "default"))
 
 (defun orchid-browser-format-workspace-name (session)
   "Extract workspace directory name from SESSION working_dir path.
@@ -94,10 +91,10 @@ Returns the final directory component, or \"N/A\" if no working_dir."
 Uses :label if present; otherwise builds <persona>-<workspace-dir>;
 falls back to :id."
   (or (plist-get session :label)
-      (let ((persona (plist-get session :persona))
+      (let ((policy (plist-get session :policy))
             (workspace-dir (orchid-browser-format-workspace-name session)))
-        (when (and persona (not (equal workspace-dir "N/A")))
-          (concat persona "-" workspace-dir)))
+        (when (and policy (not (equal workspace-dir "N/A")))
+          (concat policy "-" workspace-dir)))
       (plist-get session :id)
       "unknown"))
 
