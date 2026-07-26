@@ -26,9 +26,10 @@
                          :working_dir "/home/user/project"))))
     (orchid-session--update-registry (list session))
     (let ((metadata (orchid-chat--format-header-metadata "test-123")))
-      (should (string-match-p "Persona:.*developer" metadata))
       (should (string-match-p "Workspace:.*project" metadata))
-      (should (string-match-p "\\[CONFIG\\]" metadata)))))
+      (should (string-match-p "Policy:.*default" metadata))
+      (should-not (string-match-p "\\[META\\]" metadata))
+      (should-not (string-match-p "\\[CONFIG\\]" metadata)))))
 
 (ert-deftest orchid-chat-test-header-no-metadata-for-pending ()
   "Pending sessions don't show workspace or persona metadata."
@@ -45,11 +46,11 @@
          (session (orchid-test-make-session
                    (list :id "test-456"
                          :label "dev-session"
-                         :persona "developer"
+                         :agent "developer"
                          :working_dir "/home/dev/code"))))
     (orchid-session--update-registry (list session))
     (let ((metadata (orchid-chat--format-header-metadata "test-456")))
-      (should (string-match-p "Persona:.*developer" metadata))
+      (should (string-match-p "Policy:.*developer" metadata))
       (should (string-match-p "Workspace:.*code" metadata)))))
 
 (provide 'orchid-chat-header-test)

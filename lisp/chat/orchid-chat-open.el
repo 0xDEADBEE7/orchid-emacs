@@ -26,7 +26,6 @@
 (declare-function orchid-chat--start-log-monitoring "chat/orchid-chat-session" (session-id buffer))
 (declare-function orchid-chat--setup-buffer "orchid-chat" (session-id label))
 (declare-function orchid-chat-mode "orchid-chat" ())
-(declare-function orchid-chat--insert-more-button "orchid-chat" ())
 (declare-function orchid-chat--cleanup "chat/orchid-chat-session" ())
 (declare-function orchid-session--read-metadata "orchid-session" (session-id))
 (declare-function orchid-chat-insert-system-message "orchid-chat" (msg))
@@ -54,12 +53,8 @@
     (with-current-buffer chat-buffer
       (condition-case err
           (progn
-            ;; Set up history cursor and [More] button
+            ;; Set up history cursor
             (orchid-chat--setup-history-cursor)
-            (when orchid-log-restore-max-events
-              (save-excursion
-                (goto-char orchid-chat--history-cursor)
-                (orchid-chat--insert-more-button)))
 
             ;; Restore session history
             (let* ((restore-start (current-time))

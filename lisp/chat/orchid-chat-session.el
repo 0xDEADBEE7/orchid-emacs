@@ -25,8 +25,6 @@
 (declare-function orchid-chat--setup-buffer "orchid-chat")
 (declare-function orchid-chat--init-assistant-cursor "orchid-chat")
 (declare-function orchid-chat-insert-log-line "orchid-chat")
-(declare-function orchid-chat--insert-more-button "orchid-chat")
-(declare-function orchid-chat--remove-more-button "orchid-chat")
 (declare-function orchid-session--read-metadata "session/orchid-session" (session-id))
 
 ;; Buffer-local variables declared in orchid-chat.el
@@ -58,46 +56,15 @@ Uses only the last directory name of the workspace path."
 
 (defun orchid-chat--format-header-metadata (session-id &optional session)
   "Format metadata section for SESSION-ID.
-Uses SESSION plist if provided, otherwise fetches from registry.
-Returns formatted string with workspace, agent, and open-logs button."
+Uses SESSION plist if provided, otherwise fetches from registry."
   (let* ((s (or session (orchid-session-get session-id)))
          (agent (or (plist-get s :agent) "default"))
          (workspace (or (plist-get s :working_dir)
                         (plist-get s :workspace)
-                        "N/A"))
-         (meta-path (orchid-core-session-metadata-path session-id))
-         (config-path (expand-file-name orchid-core-config-dir))
-         (meta-button (propertize "[META]"
-                                  'face 'orchid-button
-                                  'mouse-face 'highlight
-                                  'help-echo meta-path
-                                  'keymap (let ((map (make-sparse-keymap)))
-                                            (define-key map (kbd "RET")
-                                              (lambda () (interactive)
-                                                (find-file meta-path)))
-                                            (define-key map [mouse-1]
-                                              (lambda () (interactive)
-                                                (find-file meta-path)))
-                                            map)
-                                  'rear-nonsticky t))
-         (config-button (propertize "[CONFIG]"
-                                    'face 'orchid-button
-                                    'mouse-face 'highlight
-                                    'help-echo config-path
-                                    'keymap (let ((map (make-sparse-keymap)))
-                                              (define-key map (kbd "RET")
-                                                (lambda () (interactive)
-                                                  (find-file config-path)))
-                                              (define-key map [mouse-1]
-                                                (lambda () (interactive)
-                                                  (find-file config-path)))
-                                              map)
-                                    'rear-nonsticky t)))
-    (format "Workspace: %s\nPolicy: %s\n%s  %s\n"
+                        "N/A")))
+    (format "Workspace: %s\nPolicy: %s\n"
             (propertize workspace 'face 'font-lock-string-face)
-            (propertize agent 'face 'font-lock-keyword-face)
-            meta-button
-            config-button)))
+            (propertize agent 'face 'font-lock-keyword-face))))
 
 (defun orchid-chat--cleanup ()
   "Clean up current chat buffer's resources."
@@ -124,10 +91,9 @@ Returns the created buffer."
 
 (defun orchid-chat--setup-history-cursor ()
   "Set up history cursor marker in header section.
-Positions cursor before separator where [More] button should appear."
+Positions the history insertion point after the metadata header."
   (goto-char (point-min))
-  ;; Skip past the metadata header lines (Workspace, Persona, [META] [CONFIG])
-  (when (re-search-forward "^\\[META\\]" nil t)
+  (when (re-search-forward "^Policy:" nil t)
     (forward-line 1))
   (setq orchid-chat--history-cursor (point-marker))
   (set-marker-insertion-type orchid-chat--history-cursor t))
@@ -156,10 +122,7 @@ Returns plist with :count and :seen-events."
 
 (defun orchid-chat--finalize-history-display (event-count process-running)
   "Finalize history display after loading EVENT-COUNT events.
-Handles [More] button removal, separator insertion, and markers.
 PROCESS-RUNNING indicates if session has active process."
-  (when (and orchid-log-restore-max-events (= event-count 0))
-    (orchid-chat--remove-more-button))
 
   (when (> event-count 0)
     (goto-char (point-max))

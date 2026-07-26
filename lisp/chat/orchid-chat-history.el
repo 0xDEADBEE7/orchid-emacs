@@ -8,13 +8,11 @@
 ;;; Commentary:
 
 ;; Load-more history functionality for the Orchid chat buffer.
-;; Handles the [Load More History] button and incremental history loading.
 ;; Extracted from orchid-chat.el to keep individual files under 200 lines.
 
 ;;; Code:
 
 (require 'orchid-log)
-(require 'core/orchid-faces)
 (require 'chat/orchid-chat-config)
 
 ;; Forward declarations for chat vars and functions
@@ -55,34 +53,7 @@
         (if (> count 0)
             (progn
               (message "Loaded %d more events" count))
-          (message "No more history to load")
-          (orchid-chat--remove-more-button))))))
-
-(defun orchid-chat--remove-more-button ()
-  "Remove the [More] button from the buffer."
-  (save-excursion
-    (goto-char (point-min))
-    (when (re-search-forward "^\\[Load More History.*\\][ \t]*\n" nil t)
-      (let ((inhibit-read-only t))
-        (delete-region (match-beginning 0) (match-end 0))))))
-
-(defun orchid-chat--insert-more-button ()
-  "Insert [More] button at the top of history."
-  (save-excursion
-    (goto-char orchid-chat--history-cursor)
-    (let ((inhibit-read-only t)
-          (button-text "[Load More History]"))
-      (insert (propertize button-text
-                         'face 'orchid-button
-                         'mouse-face 'highlight
-                         'help-echo "Click to load older events (or press RET)"
-                         'keymap (let ((map (make-sparse-keymap)))
-                                   (define-key map (kbd "RET") 'orchid-chat-load-more-history)
-                                   (define-key map [mouse-1] 'orchid-chat-load-more-history)
-                                   map)
-                         'read-only t
-                         'rear-nonsticky t))
-      (insert "\n"))))
+          (message "No more history to load"))))))
 
 (provide 'chat/orchid-chat-history)
 
