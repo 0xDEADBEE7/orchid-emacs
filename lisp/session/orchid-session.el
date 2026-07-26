@@ -54,20 +54,15 @@ RUNNING is t when the session is active, nil when idle."
 ;;; Private Functions
 
 (defun orchid-session--read-metadata (session-id)
-  "Read metadata and runtime state for SESSION-ID and merge them.
-Metadata is identity/configuration; state supplies runtime fields."
-  (let ((path (orchid-core-session-metadata-path session-id))
-        (state-path (orchid-core-session-state-path session-id)))
+  "Read metadata for SESSION-ID."
+  (let ((path (orchid-core-session-metadata-path session-id)))
     (when (file-exists-p path)
       (condition-case nil
-          (let ((metadata (with-temp-buffer
-                            (insert-file-contents path)
-                            (json-parse-buffer :object-type 'plist :array-type 'list)))
-                (state (when (file-exists-p state-path)
-                         (with-temp-buffer
-                           (insert-file-contents state-path)
-                           (json-parse-buffer :object-type 'plist :array-type 'list)))))
-            (if state (append state metadata) metadata))
+          (with-temp-buffer
+            (insert-file-contents path)
+            (json-parse-buffer :object-type 'plist
+                               :array-type 'list
+                               :null-object nil))
         (error nil)))))
 
 (defun orchid-session--preserve-state (session)

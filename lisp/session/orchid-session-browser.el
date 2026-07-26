@@ -21,7 +21,7 @@
 (require 'browser/orchid-browser-marks)
 (require 'browser/orchid-browser-populate)
 
-(declare-function orchid-chat-open-new "orchid-chat" (&optional policy prompt))
+(declare-function orchid-chat-open-new "orchid-chat" (&optional agent prompt))
 (declare-function orchid-session-notify-status-change "orchid-session" (session-id running))
 
 ;;; Configuration
@@ -124,14 +124,12 @@
         (kill-buffer browser-buf)))))
 
 (defun orchid-session-browser-new ()
-  "Start a new chat session, prompting for policy and prompt selection."
+  "Start a new chat session, prompting for agent selection."
   (interactive)
-  (let* ((policies (orchid-session-browser--fetch-policies))
-         (prompts (orchid-session-browser--fetch-prompts))
-         (policy (when policies (completing-read "Policy: " policies nil t)))
-         (prompt (when prompts (completing-read "Prompt (optional): " (cons "" prompts) nil t))))
+  (let* ((agents (or (orchid-session-browser--fetch-agents) '("default")))
+         (agent (completing-read "Agent: " agents nil t)))
     (require 'orchid-chat)
-    (orchid-chat-open-new policy (unless (string-empty-p (or prompt "")) prompt))))
+    (orchid-chat-open-new agent)))
 
 (defun orchid-session-browser-refresh ()
   "Refresh session list from CLI and update browser."

@@ -38,9 +38,9 @@
 
 (defun orchid-chat--format-buffer-name (session-id session)
   "Format buffer name for SESSION-ID with SESSION data.
-Format: *orchid-chat-<policy>-<workspace-dir>-<last-5-digits>*
+Format: *orchid-chat-<agent>-<workspace-dir>-<last-5-digits>*
 Uses only the last directory name of the workspace path."
-  (let* ((policy (or (plist-get session :policy) "default"))
+  (let* ((agent (or (plist-get session :agent) "default"))
          (workspace-path (or (plist-get session :working_dir)
                              (plist-get session :workspace)
                              "none"))
@@ -52,16 +52,16 @@ Uses only the last directory name of the workspace path."
                          (substring session-id (- (length session-id) 5))
                        session-id)))
     (format "*orchid-chat-%s-%s-%s*"
-            (downcase policy)
+            (downcase agent)
             (downcase workspace-dir)
             hash-suffix)))
 
 (defun orchid-chat--format-header-metadata (session-id &optional session)
   "Format metadata section for SESSION-ID.
 Uses SESSION plist if provided, otherwise fetches from registry.
-Returns formatted string with workspace, policy, and open-logs button."
+Returns formatted string with workspace, agent, and open-logs button."
   (let* ((s (or session (orchid-session-get session-id)))
-         (policy (or (plist-get s :policy) "default"))
+         (agent (or (plist-get s :agent) "default"))
          (workspace (or (plist-get s :working_dir)
                         (plist-get s :workspace)
                         "N/A"))
@@ -95,7 +95,7 @@ Returns formatted string with workspace, policy, and open-logs button."
                                     'rear-nonsticky t)))
     (format "Workspace: %s\nPolicy: %s\n%s  %s\n"
             (propertize workspace 'face 'font-lock-string-face)
-            (propertize policy 'face 'font-lock-keyword-face)
+            (propertize agent 'face 'font-lock-keyword-face)
             meta-button
             config-button)))
 
@@ -170,7 +170,7 @@ PROCESS-RUNNING indicates if session has active process."
                          'face 'orchid-chat-separator-face
                          'read-only t
                          'rear-nonsticky t))
-      (insert "\n")
+      (insert "\n\n")
       (setq orchid-chat--input-marker (point-marker))
       (set-marker-insertion-type orchid-chat--input-marker nil)
       (orchid-chat--init-assistant-cursor (point))
@@ -196,7 +196,7 @@ RUN-STARTED-STR is an ISO-8601 timestamp string for the run start time."
                        'face 'orchid-chat-separator-face
                        'read-only t
                        'rear-nonsticky t))
-    (insert "\n")
+    (insert "\n\n")
     (setq orchid-chat--input-marker (point-marker))
     (set-marker-insertion-type orchid-chat--input-marker nil)
     (orchid-chat--init-assistant-cursor (point))))

@@ -220,6 +220,19 @@
     (should (string= "tool_result" (plist-get result :event-type)))
     (should (plist-get result :display))))
 
-(provide 'orchid-parser-test)
+(ert-deftest orchid-parser-stub-columns-align-tool-events ()
+  "Tool stubs use fixed label, preview, and timestamp columns."
+  (let* ((timestamp "2026-07-22T01:16:46Z")
+         (bash (orchid-parser--format-stub-with-timestamp
+                "[bash] [# run formatter and focused compile check d]" timestamp))
+         (result (orchid-parser--format-stub-with-timestamp
+                  "[rslt] [───────────────────────────────────────────]" timestamp)))
+    (should (= (string-match "\\[" bash 0) 0))
+    (should (= (string-match "\\[" result 0) 0))
+    (should (string-match-p "\\[bash\\] +\\[# run formatter" bash))
+    (should (string-match-p "\\[rslt\\] +\\[─" result))
+    (should (= (string-match "\\[2026-07-22 01:16:46\\]" bash)
+               (string-match "\\[2026-07-22 01:16:46\\]" result)))))
+
 
 ;;; orchid-parser-test.el ends here

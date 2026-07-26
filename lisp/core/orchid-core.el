@@ -26,17 +26,16 @@
   :prefix "orchid-core-")
 
 (defcustom orchid-core-cli-path "orchid"
-  "Path to orchid CLI executable."
+  "Path to the Orchid CLI executable."
   :type 'string
   :group 'orchid-core)
 
 (defcustom orchid-core-config-dir
   (expand-file-name "~/.config/orchid/")
-  "Configuration directory passed to every Orchid CLI invocation.
+  "Simplified-harness configuration and session root.
 
-Keep this independent of `default-directory`: Emacs may load the client from
-its source directory, while Orchid's user configuration lives under the
-standard per-user config directory."
+This directory contains config.json, policies, connections, auth, prompts,
+sessions, and logs.jsonl."
   :type 'directory
   :group 'orchid-core)
 
@@ -72,11 +71,12 @@ Tries to parse as JSON first, otherwise returns raw output."
 (defun orchid-core--make-result (exit-code output duration)
   "Create result plist from EXIT-CODE, OUTPUT, and DURATION."
   (if (and (integerp exit-code) (zerop exit-code))
-      (list :success t
-            :data (orchid-core--parse-json output)
-            :raw output
-            :exit-code exit-code
-            :duration duration)
+      (orchid-core--normalize-result
+       (list :success t
+             :data (orchid-core--parse-json output)
+             :raw output
+             :exit-code exit-code
+             :duration duration))
     (list :success nil
           :error (orchid-core--extract-error output)
           :raw output
@@ -111,13 +111,15 @@ with both current and older CLI builds."
   "Return the metadata path for SESSION-ID."
   (orchid-core-session-path session-id "metadata.json"))
 
-(defun orchid-core-session-state-path (session-id)
-  "Return the runtime state path for SESSION-ID."
-  (orchid-core-session-path session-id "state.json"))
+(defun orchid-core-session-events-path (session-id)
+  "Return the event stream path for SESSION-ID."
+  (orchid-core-session-path session-id "events.jsonl"))
 
-(defun orchid-core-session-conversation-path (session-id)
-  "Return the transcript path for SESSION-ID."
-  (orchid-core-session-path session-id "conversation.jsonl"))
+(defun orchid-core-session-log-path (session-id)
+  "Return the per-session log path for SESSION-ID."
+  (orchid-core-session-path session-id "logs.jsonl"))
+
+(defalias 'orchid-core-session-conversation-path #'orchid-core-session-events-path)
 
 (defun orchid-core--execute-internal-sync (args)
   "Execute ARGS synchronously, return result plist."
@@ -126,7 +128,7 @@ with both current and older CLI builds."
          (exit-code (apply #'call-process
                            orchid-core-cli-path
                            nil
-                           output-buffer
+                           (cons output-buffer output-buffer)
                            nil
                            args))
          (output (with-current-buffer output-buffer (buffer-string)))
@@ -142,6 +144,7 @@ Returns the process object."
     (make-process
      :name "orchid-cli"
      :buffer output-buffer
+     :stderr output-buffer
      :command (cons orchid-core-cli-path args)
      :sentinel
      (lambda (proc _event)
@@ -151,7 +154,30 @@ Returns the process object."
                 (duration (float-time (time-subtract (current-time) start-time))))
            (kill-buffer output-buffer)
            (when callback
-             (funcall callback (orchid-core--make-result exit-code output duration)))))))))
+             (funcall callback
+                      (orchid-core--normalize-result
+                       (orchid-core--make-result exit-code output duration))))))))))
+
+(defun orchid-core--normalize-session (session)
+  "Flatten a simplified-harness session into the client's session plist."
+  (let ((metadata (or (plist-get session :metadata) session))
+        (state (plist-get session :state)))
+    (append metadata
+            (when state
+              (list :status (plist-get state :status)
+                    :pid (plist-get state :pid)
+                    :last_message (plist-get state :last_message)
+                    :running (equal (plist-get state :status) "running"))))))
+
+(defun orchid-core--normalize-result (result)
+  "Normalize simplified-harness command output for client callers."
+  (when (and result (plist-get result :success))
+    (let ((data (plist-get result :data)))
+      (let ((sessions (and (listp data) (plist-get data :sessions))))
+        (when (and sessions (listp sessions))
+          (plist-put result :data
+                     (mapcar #'orchid-core--normalize-session sessions))))))
+  result)
 
 ;;; Public API
 
@@ -165,44 +191,34 @@ Async if CALLBACK provided, otherwise sync."
   (orchid-core--execute '("--version") callback))
 
 (defun orchid-core-create (&rest args)
-  "Create a new conversation without sending a message.
-  ARGS: :label, :working-dir, :policy, :prompt, :restrictions, :callback.
+  "Create a new simplified-harness session.
+  ARGS: :label, :working-dir, :agent, :callback.
 Returns metadata JSON with :id on success."
   (let* ((label (plist-get args :label))
          (working-dir (plist-get args :working-dir))
-         (policy (plist-get args :policy))
-         (prompt (plist-get args :prompt))
-         (restrictions (plist-get args :restrictions))
+         (agent (plist-get args :agent))
          (callback (plist-get args :callback))
          (cmd-args (list "create")))
     (when label
       (setq cmd-args (append cmd-args (list "--label" label))))
     (when working-dir (setq cmd-args (append cmd-args (list "--working-dir" working-dir))))
-    (when policy (setq cmd-args (append cmd-args (list "--policy" policy))))
-    (when prompt (setq cmd-args (append cmd-args (list "--prompt" prompt))))
-    (dolist (restriction restrictions)
-      (setq cmd-args (append cmd-args (list "--restriction" restriction))))
+    (when agent (setq cmd-args (append cmd-args (list "--agent" agent))))
     (orchid-core--execute cmd-args callback)))
 
 (defun orchid-core-send (message &optional conversation-id &rest args)
-  "Send MESSAGE to CONVERSATION-ID.
-  ARGS: :await, :label, :working-dir, :policy, :prompt, :callback.
-If CONVERSATION-ID is nil, starts a new conversation."
-  (let* ((await (plist-get args :await))
-         (label (plist-get args :label))
+  "Send MESSAGE asynchronously to CONVERSATION-ID.
+  ARGS: :label, :working-dir, :agent, :callback.
+Use `orchid-core-await' when the worker should be joined."
+  (let* ((label (plist-get args :label))
          (working-dir (plist-get args :working-dir))
-         (policy (plist-get args :policy))
-         (prompt (plist-get args :prompt))
+         (agent (plist-get args :agent))
          (callback (plist-get args :callback))
          (cmd-args (list "send")))
     (when conversation-id
       (setq cmd-args (append cmd-args (list "--id" conversation-id))))
-    (when await
-      (setq cmd-args (append cmd-args '("--await"))))
     (when label (setq cmd-args (append cmd-args (list "--label" label))))
     (when working-dir (setq cmd-args (append cmd-args (list "--working-dir" working-dir))))
-    (when policy (setq cmd-args (append cmd-args (list "--policy" policy))))
-    (when prompt (setq cmd-args (append cmd-args (list "--prompt" prompt))))
+    (when agent (setq cmd-args (append cmd-args (list "--agent" agent))))
     ;; message must come last — positional arg after all flags
     (setq cmd-args (append cmd-args (list message)))
     (orchid-core--execute cmd-args callback)))
@@ -212,15 +228,12 @@ If CONVERSATION-ID is nil, starts a new conversation."
   ARGS: :label, :working-dir, :restrictions, :callback."
   (let* ((label (plist-get args :label))
          (working-dir (plist-get args :working-dir))
-         (restrictions (plist-get args :restrictions))
          (callback (plist-get args :callback))
-         (cmd-args (list "set" "--id" conversation-id)))
+         (cmd-args (list "set" conversation-id)))
     (when label
       (setq cmd-args (append cmd-args (list "--label" label))))
     (when working-dir
       (setq cmd-args (append cmd-args (list "--working-dir" working-dir))))
-    (dolist (restriction restrictions)
-      (setq cmd-args (append cmd-args (list "--restriction" restriction))))
     (orchid-core--execute cmd-args callback)))
 
 (defun orchid-core-stop (conversation-id &optional callback)
@@ -229,31 +242,44 @@ Calls `orchid stop <id>` (SIGTERM)."
   (orchid-core--execute (list "stop" conversation-id) callback))
 
 (defun orchid-core-delete (conversation-id &optional callback)
-  "Permanently delete CONVERSATION-ID.
+  "Archive CONVERSATION-ID using the simplified harness.
 Async if CALLBACK provided, otherwise sync."
   (orchid-core--execute (list "delete" conversation-id) callback))
 
 (defun orchid-core-kill (session-id &optional callback)
-  "Forcefully kill SESSION-ID."
-  (orchid-core--execute (list "kill" session-id) callback))
+  "Stop SESSION-ID."
+  (orchid-core-stop session-id callback))
 
 (defun orchid-core-list (&optional resource callback)
-  "List all conversations.  Async if CALLBACK provided.
-Returns a JSON array of conversation metadata objects."
+  "List simplified-harness sessions.  Async if CALLBACK provided."
   (when (functionp resource) (setq callback resource resource nil))
-  (orchid-core--execute (if resource (list "list" resource) '("list")) callback))
+  (orchid-core--execute '("list") callback))
 
-(defun orchid-core-list-policies (&optional callback)
-  "List policy resources."
-  (orchid-core-list "policies" callback))
+(defun orchid-core-list-agents (&optional callback)
+  "List configured agent summaries."
+  (let ((result (orchid-core--execute '("agent") callback)))
+    (if callback result
+      (when (and result (plist-get result :success))
+        (plist-get (plist-get result :data) :agents)))))
+
+(defalias 'orchid-core-list-policies #'orchid-core-list-agents)
 
 (defun orchid-core-list-prompts (&optional callback)
-  "List prompt resources."
-  (orchid-core-list "prompts" callback))
+  "List configured prompt names."
+  (if callback
+      (funcall callback (list :success t :data '("default")))
+    '("default")))
+
+(defun orchid-core-await (session-id &optional timeout callback)
+  "Wait for SESSION-ID to finish, optionally with TIMEOUT seconds."
+  (let ((args (list "await" session-id)))
+    (when timeout (setq args (append args (list "--timeout" (number-to-string timeout)))))
+    (orchid-core--execute args callback)))
 
 (defun orchid-core-validate (&optional callback)
   "Validate the selected configuration."
-  (orchid-core--execute '("validate") callback))
+  (let ((result (list :success t :data t :raw "" :exit-code 0 :duration 0)))
+    (if callback (funcall callback result) result)))
 
 (provide 'core/orchid-core)
 

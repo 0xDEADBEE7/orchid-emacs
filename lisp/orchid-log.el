@@ -63,7 +63,7 @@ In restore mode, user text messages are displayed (normally filtered).")
 ;;; Private Functions
 
 (defun orchid-log--conversation-file (session-id)
-  "Return path to conversation.jsonl for SESSION-ID."
+  "Return the simplified-harness event stream for SESSION-ID."
   (orchid-core-session-conversation-path session-id))
 
 (defun orchid-log--find-file (session-id)
@@ -184,6 +184,18 @@ Returns the log buffer."
   (when-let ((entry (orchid-log--get-entry session-id)))
     (plist-get entry :buffer)))
 
+(defun orchid-log-flush (session-id)
+  "Refresh and process all currently written events for SESSION-ID."
+  (when-let ((buffer (orchid-log-get-buffer session-id)))
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (condition-case err
+            (progn
+              (revert-buffer :ignore-auto :noconfirm)
+              (orchid-log--process-new-content session-id))
+          (error
+           (orchid-log "Failed to flush session %s: %s"
+                       session-id (error-message-string err))))))))
 (defun orchid-log-show (session-id)
   "Display log buffer for SESSION-ID in a window."
   (interactive "sSession ID: ")

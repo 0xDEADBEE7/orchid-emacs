@@ -78,10 +78,9 @@ Orchid tool args use: bash → cmd, fs_read → path."
 ;;; Parser
 
 (defun orchid-parser--tool-call (data)
-  "Handle tool_call events from DATA.
-New format: nested :tool_call with :calls array of {id, name, input}."
-  (let* ((tool-call-obj (plist-get data :tool_call))
-         (calls (when tool-call-obj (plist-get tool-call-obj :calls)))
+  "Handle simplified-harness tool_call events.
+Calls are stored directly in the event as :calls."
+  (let* ((calls (plist-get data :calls))
          (timestamp (plist-get data :timestamp)))
     (when (and calls (listp calls) (> (length calls) 0))
       (let* ((parts

@@ -22,11 +22,9 @@
 (defvar orchid-log--restore-mode)
 
 (defun orchid-parser--message (data)
-  "Handle `message` log events from DATA (role=assistant or role=user).
-Format: top-level :type=message, :timestamp, nested :message with :role and :content."
-  (let* ((msg (plist-get data :message))
-         (role (plist-get msg :role))
-         (content (plist-get msg :content))
+  "Handle `message` events from DATA (role=assistant or role=user)."
+  (let* ((role (plist-get data :role))
+         (content (plist-get data :content))
          (timestamp (plist-get data :timestamp)))
     (cond
      ;; User messages: only show in restore mode
@@ -36,7 +34,7 @@ Format: top-level :type=message, :timestamp, nested :message with :role and :con
                  (preview (if (> (length clean) 50)
                               (concat (substring clean 0 47) "...")
                             clean))
-                 (base-stub (format "[User: %s]" preview))
+                 (base-stub (format "[user] [%s]" preview))
                  (stub (orchid-parser--format-stub-with-timestamp base-stub timestamp)))
             (list :display (orchid-collapsible-create stub content t 'orchid-collapsible-user-stub-face)
                   :event-type "user"))
@@ -48,7 +46,7 @@ Format: top-level :type=message, :timestamp, nested :message with :role and :con
                  (preview (if (> (length clean) 50)
                               (concat (substring clean 0 47) "...")
                             clean))
-                 (base-stub (format "[Assistant: %s]" preview))
+                 (base-stub (format "[agnt] [%s]" preview))
                  (stub (orchid-parser--format-stub-with-timestamp base-stub timestamp))
                  (detail-fn (lambda ()
                               (concat (propertize "Assistant: " 'face 'orchid-chat-assistant-face)

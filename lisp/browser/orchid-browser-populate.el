@@ -59,17 +59,21 @@
   (when orchid-session-browser--row-strings
     (remhash session-id orchid-session-browser--row-strings)))
 
-(defun orchid-session-browser--fetch-policies (&optional callback)
-  "Return policy resource names, optionally asynchronously."
-  (let ((result (orchid-core-list-policies callback)))
+(defun orchid-session-browser--fetch-agents (&optional callback)
+  "Return configured agent names, optionally asynchronously."
+  (let ((result (orchid-core-list-agents callback)))
     (when (and result (plist-get result :success))
-      (plist-get result :data))))
+      (mapcar (lambda (agent) (plist-get agent :name))
+              (plist-get (plist-get result :data) :agents)))))
 
 (defun orchid-session-browser--fetch-prompts (&optional callback)
-  "Return prompt resource names, optionally asynchronously."
-  (let ((result (orchid-core-list-prompts callback)))
-    (when (and result (plist-get result :success))
-      (plist-get result :data))))
+  "Return the default prompt resource, optionally asynchronously."
+  (if callback
+      (funcall callback '("default"))
+    '("default")))
+
+(defalias 'orchid-session-browser--fetch-personas
+  #'orchid-session-browser--fetch-agents)
 
 (defun orchid-session-browser--sort-sessions (sessions)
   "Sort SESSIONS by updated_at date, most recent first."

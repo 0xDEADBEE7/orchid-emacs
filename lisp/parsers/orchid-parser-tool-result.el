@@ -36,11 +36,10 @@
 (defun orchid-parser--tool-result (data)
   "Handle tool_result events from DATA.
 Displays as a collapsible stub with full content on expand."
-  (let* ((result-obj (or (plist-get data :tool_result) data))
-         (call-id (plist-get result-obj :call_id))
-         (content (plist-get result-obj :content))
+  (let* ((call-id (plist-get data :call_id))
+         (content (plist-get data :content))
          (timestamp (plist-get data :timestamp))
-         (base-stub "[---------------------------------------------------------]")
+         (base-stub "[rslt] [───────────────────────────────────────────]")
          (stub (orchid-parser--format-stub-with-timestamp base-stub timestamp)))
     (cond
      ((not content)

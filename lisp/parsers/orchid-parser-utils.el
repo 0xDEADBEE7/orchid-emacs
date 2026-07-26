@@ -12,7 +12,7 @@
 
 ;;; Code:
 
-(require 'json)
+(require 'time-date)
 (require 'diff-mode)
 
 (declare-function parse-iso8601-time-string "time-date" (date-string))
@@ -46,7 +46,7 @@ Prepends '…' when truncation occurs."
 Returns formatted string or nil if timestamp is invalid."
   (when iso-timestamp
     (condition-case nil
-        (let* ((time (parse-iso8601-time-string iso-timestamp))
+        (let* ((time (date-to-time iso-timestamp))
                (decoded (decode-time time)))
           (format "%04d-%02d-%02d %02d:%02d:%02d"
                   (nth 5 decoded)  ; year
@@ -57,23 +57,38 @@ Returns formatted string or nil if timestamp is invalid."
                   (nth 0 decoded))) ; second
       (error nil))))
 
+(defconst orchid-parser--stub-label-width 10
+  "Width of the event label column, including brackets and spacing.")
+
+(defconst orchid-parser--stub-preview-width 44
+  "Width of the preview column, including brackets.")
+
 (defun orchid-parser--format-stub-with-timestamp (stub-text timestamp)
-  ;; timestamp arg name kept for compatibility; caller passes (plist-get data :ts)
-  "Format STUB-TEXT with TIMESTAMP aligned to positions 0-53 and 59-79.
-First bracket contains stub text (max 53 chars).
-Second bracket contains timestamp (positions 59-79)."
+  "Format STUB-TEXT and TIMESTAMP in fixed-width columns."
   (let* ((formatted-timestamp (orchid-parser--format-timestamp timestamp))
-         ;; Ensure stub doesn't exceed position 53
-         (truncated-stub (if (> (length stub-text) 53)
-                             (concat (substring stub-text 0 50) "...]")
-                           stub-text))
-         ;; Calculate padding needed to reach position 59
-         (stub-length (length truncated-stub))
-         (padding-needed (max 0 (- 59 stub-length)))
-         (padding (make-string padding-needed ?\s)))
-    (if formatted-timestamp
-        (format "%s%s[%s]" truncated-stub padding formatted-timestamp)
-      truncated-stub)))
+         (parts (when (string-match "\\`\\(\\[[^]]+\\]\\)\\s-*\\(\\[[^]]*\\]\\)\\'" stub-text)
+                 (list (match-string 1 stub-text) (match-string 2 stub-text))))
+         (label (if (and parts (<= (string-width (car parts)) orchid-parser--stub-label-width))
+                    (car parts) "[event]"))
+         (preview (if parts (cadr parts) ""))
+         (preview (if (string-match "\\.\\.\\.\\]\\'" preview)
+                      (concat (substring preview 0 (match-beginning 0)) "]") preview))
+         (content (if (and (> (length preview) 1)
+                           (= (aref preview 0) ?\[)
+                           (= (aref preview (1- (length preview))) ?\]))
+                      (substring preview 1 -1) preview))
+         (content (truncate-string-to-width
+                   content (- orchid-parser--stub-preview-width 2) nil nil ""))
+         (preview (concat "[" content
+                          (make-string
+                           (max 0 (- (- orchid-parser--stub-preview-width 2)
+                                     (string-width content)))
+                           ?\s)
+                          "]"))
+         (label-column (concat label (make-string (max 0 (- orchid-parser--stub-label-width (string-width label))) ?\s))))
+    (concat label-column preview
+            (when formatted-timestamp
+              (concat "    [" formatted-timestamp "]")))))
 
 ;;; Diff formatting
 
