@@ -66,6 +66,25 @@
 
 ;;; orchid-processing-finish
 
+(ert-deftest orchid-processing-test-status-only-finishes-on-idle ()
+  "A missing or malformed status must not finish processing."
+  (let ((orchid-processing--marker t)
+        (orchid-processing--finished nil)
+        (orchid-processing--seen-running t)
+        (orchid-processing--session-id "test-session"))
+    (cl-letf (((symbol-function 'orchid-processing--read-status)
+               (lambda (_) nil))
+              ((symbol-function 'orchid-processing--refresh-chunk-count) #'ignore)
+              ((symbol-function 'orchid-processing--read-state-value)
+               (lambda (&rest _) nil))
+              ((symbol-function 'orchid-session-notify-status-change) #'ignore))
+      ;; The marker is deliberately not in a live buffer, so stub the guard.
+      (cl-letf (((symbol-function 'marker-buffer) (lambda (_) t))
+                ((symbol-function 'orchid-processing--update-display) #'ignore)
+                ((symbol-function 'orchid-processing-stop) #'ignore))
+        (orchid-processing--check-status)
+        (should-not orchid-processing--finished)))))
+
 (ert-deftest orchid-processing-test-finish-marks-finished ()
   "orchid-processing-finish sets finished flag and stops timer."
   (let ((buf (generate-new-buffer "*orchid-proc-finish-test*")))

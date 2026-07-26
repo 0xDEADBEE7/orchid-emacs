@@ -43,8 +43,12 @@ Returns nil if the line cannot be parsed as JSON."
              (json-array-type 'list)
              (json-key-type 'keyword)
              (json-data (if (fboundp 'json-parse-string)
-                            (json-parse-string line :object-type 'plist :array-type 'list)
-                          (json-read-from-string line)))
+                            (json-parse-string line
+                                               :object-type 'plist
+                                               :array-type 'list
+                                               :null-object nil)
+                          (let ((json-null nil))
+                            (json-read-from-string line))))
              (type (plist-get json-data :type))
              (event-id (plist-get json-data :event_id))
              (timestamp (plist-get json-data :timestamp)))

@@ -15,7 +15,7 @@
 (require 'session/orchid-session)
 (require 'log/orchid-logging)
 (require 'core/orchid-processing-watch)
-(require 'core/orchid-core)
+(declare-function orchid-log-flush "orchid-log" (session-id))
 
 ;;; Buffer-Local State
 
@@ -55,6 +55,11 @@ Guards against false finish on the initial metadata write.")
 
 ;;; Private Functions
 
+(defun orchid-processing--terminal-status-p (status)
+  "Return non-nil when STATUS represents a stopped worker."
+  (member status '("idle" "failed" "cancelled")))
+
+
 (defun orchid-processing--elapsed-seconds ()
   "Return seconds elapsed since processing started."
   (if orchid-processing--start-time
@@ -62,14 +67,22 @@ Guards against false finish on the initial metadata write.")
     0))
 
 (defun orchid-processing--read-stream-state (session-id)
-  "Read the current token estimate from state.json for SESSION-ID."
-  (let ((state-path (orchid-core-session-state-path session-id)))
-    (when (file-exists-p state-path)
-      (condition-case nil
-          (with-temp-buffer
-            (insert-file-contents state-path)
-            (plist-get (json-parse-buffer :object-type 'plist) :token_estimate))
-        (error nil)))))
+  "Read the session metadata plist for SESSION-ID, or nil on error."
+  (orchid-processing--read-metadata session-id))
+
+(defun orchid-processing--state-value (state &rest keys)
+  "Return the first present value in STATE for KEYS."
+  (when (listp state)
+    (catch 'value
+      (dolist (key keys)
+        (when (plist-member state key)
+          (throw 'value (plist-get state key)))))))
+
+(defun orchid-processing--read-state-value (session-id &rest keys)
+  "Read the first present state value for SESSION-ID from KEYS."
+  (apply #'orchid-processing--state-value
+         (orchid-processing--read-stream-state session-id)
+         keys))
 
 (defun orchid-processing--read-metadata (session-id)
   "Read and parse metadata.json for SESSION-ID.
@@ -79,13 +92,13 @@ Returns a plist or nil on error."
         (insert-file-contents
          (orchid-core-session-metadata-path session-id))
         (goto-char (point-min))
-        (json-parse-buffer :object-type 'plist))
+        (json-parse-buffer :object-type 'plist :null-object nil))
     (error nil)))
 
 (defun orchid-processing--read-status (session-id)
   "Read current status string from metadata.json for SESSION-ID.
 Returns \"running\", \"idle\", or nil on error."
-  (plist-get (orchid-processing--read-metadata session-id) :status))
+  (orchid-processing--read-state-value session-id :status))
 
 (defun orchid-processing--token-suffix ()
   "Return propertized token suffix string, or empty string if estimate is nil or zero."
@@ -136,38 +149,43 @@ Left: status + chunk count.  Right: token estimate (or blank)."
         (set-window-point (car wp) (cdr wp))))))
 
 (defun orchid-processing-capture-chunk-baseline (session-id)
-  "Capture current chunk count as the baseline for the next run.
-Call this just before starting a new run for SESSION-ID.
-The old stream counter is no longer used; baseline is always zero."
+  "Capture current chunk count as the baseline for the next run for SESSION-ID."
   (setq orchid-processing--chunk-baseline
-        (or (orchid-processing--read-stream-state session-id) 0)))
+        (or (orchid-processing--read-state-value session-id :chunks :chunk_count)
+            0)))
 
 (defun orchid-processing--refresh-chunk-count ()
-  "Refresh the cached runtime estimate from state.json."
-  (when-let ((count (orchid-processing--read-stream-state orchid-processing--session-id)))
+  "Refresh the cached chunk count from metadata.json."
+  (when-let ((count (orchid-processing--read-state-value
+                     orchid-processing--session-id :chunks :chunk_count)))
     (setq orchid-processing--chunk-count count)))
 
 (defun orchid-processing--check-status ()
-  "Read metadata and finish indicator if session is no longer running.
+  "Read state and finish when the session is no longer running.
 Called on timer tick as a fallback for missed file-notify events."
   (when (and orchid-processing--marker
              (marker-buffer orchid-processing--marker)
              (not orchid-processing--finished))
     (orchid-processing--refresh-chunk-count)
-    (let* ((metadata (orchid-processing--read-metadata orchid-processing--session-id))
-           (status  (plist-get metadata :status))
+    (let* ((status (orchid-processing--read-status orchid-processing--session-id))
            (running (equal status "running"))
-           (tokens  (plist-get metadata :token_estimate)))
-      (when (integerp tokens)
+           (terminal (orchid-processing--terminal-status-p status))
+           ;; A read/parse failure is not evidence that the process is idle.
+           ;; Only an explicit terminal state may complete the indicator.
+           (tokens (orchid-processing--read-state-value
+                    orchid-processing--session-id :token_estimate)))
+      (when (numberp tokens)
         (orchid-processing-update-token-estimate tokens))
       (when running
         (setq orchid-processing--seen-running t))
       (orchid-session-notify-status-change orchid-processing--session-id running)
-      (when (and orchid-processing--seen-running (not running))
-        (orchid-log "Process finished (poll) after %ds" (orchid-processing--elapsed-seconds))
+      (when (and orchid-processing--seen-running terminal)
+        (orchid-log "Process finished (poll) after %ds status=%s"
+                    (orchid-processing--elapsed-seconds) status)
         (setq orchid-processing--finished t)
         (setq orchid-processing--status-message nil)
-        (orchid-processing--update-display)
+        (when (fboundp 'orchid-log-flush)
+          (orchid-log-flush orchid-processing--session-id))
         (orchid-processing-stop)))))
 
 ;;; Public API
@@ -184,9 +202,9 @@ Optional START-TIME is a `float-time' value; defaults to now."
     (setq orchid-processing--finished nil)
     (setq orchid-processing--seen-running nil)
     (setq orchid-processing--chunk-count nil)
-    ;; Pre-load token estimate and chunk count so they show immediately.
-    (let ((tokens (plist-get (orchid-processing--read-metadata session-id) :token_estimate)))
-      (when (and (integerp tokens) (> tokens 0))
+    ;; Pre-load runtime counters so they show immediately.
+    (let ((tokens (orchid-processing--read-state-value session-id :token_estimate)))
+      (when (and (numberp tokens) (> tokens 0))
         (setq orchid-processing--token-estimate tokens)))
     (orchid-processing--refresh-chunk-count)
     (let ((inhibit-read-only t))
@@ -206,11 +224,11 @@ Optional START-TIME is a `float-time' value; defaults to now."
                                 (orchid-processing--update-display)
                                 (orchid-processing--check-status))))
                           (current-buffer)))
-    ;; Watch state.json for status changes.
+    ;; Watch metadata.json for status and counter changes.
     (when orchid-processing--watch
       (file-notify-rm-watch orchid-processing--watch)
       (setq orchid-processing--watch nil))
-    (let* ((metadata-path (orchid-core-session-state-path session-id))
+    (let* ((metadata-path (orchid-core-session-metadata-path session-id))
            (buf (current-buffer)))
       (orchid-processing--attach-metadata-watch metadata-path buf session-id 0))))
   ;; Socket view is started by the caller after the separator is in place.

@@ -107,10 +107,10 @@
   (dired (expand-file-name orchid-core-config-dir)))
 
 (defun orchid-chat-slash--cmd-logs ()
-  "Open orchid.log for the current session."
+  "Open the session log for the current session."
   (when orchid-chat--session-id
     (find-file
-     (expand-file-name "orchid.log" orchid-core-config-dir))))
+     (orchid-core-session-log-path orchid-chat--session-id))))
 
 (defun orchid-chat-slash--cmd-kill ()
   "Stop the running process for the current session."
@@ -127,11 +127,11 @@
   (require 'chat/orchid-chat-open)
   (let* ((session (when orchid-chat--session-id
                     (orchid-session-get orchid-chat--session-id)))
-         (policy     (when session (plist-get session :policy)))
+         (agent      (when session (plist-get session :agent)))
          (workdir    (when session (or (plist-get session :working_dir)
                                        (plist-get session :workspace)))))
     (let ((default-directory (or workdir default-directory)))
-      (orchid-chat-open-new policy (plist-get session :prompt)))))
+      (orchid-chat-open-new agent (plist-get session :prompt)))))
 
 (defun orchid-chat-slash--cmd-scope-escape ()
   "Toggle allow_scope_escape in metadata.json for the current session."

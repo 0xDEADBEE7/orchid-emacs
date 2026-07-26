@@ -75,9 +75,11 @@ Returns \"N/A\" if timestamp is nil or invalid."
             (puthash key result orchid-browser--relative-time-cache)
             result)))))
 
-(defun orchid-browser-format-policy (session)
-  "Get policy name from SESSION, or the default marker."
-  (or (plist-get session :policy) "default"))
+(defun orchid-browser-format-agent (session)
+  "Get agent name from SESSION, or the default marker."
+  (or (plist-get session :agent) "default"))
+
+(defalias 'orchid-browser-format-policy #'orchid-browser-format-agent)
 
 (defun orchid-browser-format-workspace-name (session)
   "Extract workspace directory name from SESSION working_dir path.
@@ -88,13 +90,13 @@ Returns the final directory component, or \"N/A\" if no working_dir."
 
 (defun orchid-browser-format-label (session)
   "Return display label for SESSION.
-Uses :label if present; otherwise builds <persona>-<workspace-dir>;
+Uses :label if present; otherwise builds <agent>-<workspace-dir>;
 falls back to :id."
   (or (plist-get session :label)
-      (let ((policy (plist-get session :policy))
+      (let ((agent (plist-get session :agent))
             (workspace-dir (orchid-browser-format-workspace-name session)))
-        (when (and policy (not (equal workspace-dir "N/A")))
-          (concat policy "-" workspace-dir)))
+        (when (and agent (not (equal workspace-dir "N/A")))
+          (concat agent "-" workspace-dir)))
       (plist-get session :id)
       "unknown"))
 

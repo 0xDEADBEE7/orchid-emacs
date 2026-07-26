@@ -113,13 +113,13 @@ Refreshes from CLI and displays in messages buffer."
     (message "orchid CLI not found in PATH. Please install it.")))
 
 ;;;###autoload
-(defun orchid-new-session (&optional policy prompt)
-  "Create a new session with optional POLICY and PROMPT."
+(defun orchid-new-session (&optional agent)
+  "Create a new session with optional AGENT."
   (interactive
-   (let ((policies (orchid-session-browser--fetch-policies)))
-     (list (when policies (completing-read "Policy: " policies nil t)) nil)))
+   (let ((agents (or (orchid-session-browser--fetch-agents) '("default"))))
+     (list (completing-read "Agent: " agents nil t))))
   (require 'orchid-chat)
-  (orchid-chat-open-new policy prompt))
+  (orchid-chat-open-new agent))
 
 ;;; Package Footer
 

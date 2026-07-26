@@ -97,15 +97,15 @@
                (float-time (time-subtract (current-time) start-time)))
     chat-buffer))
 
-(defun orchid-chat-open-new (&optional policy prompt)
-  "Open chat buffer for a new session with optional POLICY and PROMPT."
+(defun orchid-chat-open-new (&optional agent prompt)
+  "Open chat buffer for a new session with optional AGENT and PROMPT."
   (let* ((full-dir (expand-file-name default-directory))
          (workspace-name (file-name-nondirectory (directory-file-name full-dir)))
-         (policy-str (or policy "default"))
+         (agent-str (or agent "default"))
          (buffer (generate-new-buffer
                   (format "*orchid-chat-%s-%s-new*"
-                          (downcase policy-str) (downcase workspace-name)))))
-    (orchid-log "[open-new] policy=%S prompt=%S workspace=%S" policy prompt full-dir)
+                          (downcase agent-str) (downcase workspace-name)))))
+    (orchid-log "[open-new] agent=%S prompt=%S workspace=%S" agent prompt full-dir)
     (with-current-buffer buffer
       (orchid-chat-mode)
       (orchid-chat--setup-buffer "pending" "pending")
@@ -113,7 +113,7 @@
     (switch-to-buffer buffer)
     (goto-char (point-max))
     (orchid-core-create
-     :working-dir full-dir :policy policy :prompt prompt
+     :working-dir full-dir :agent (or agent "default")
      :callback
      (lambda (create-result)
        (if (not (plist-get create-result :success))
@@ -122,25 +122,37 @@
                (orchid-chat-insert-system-message
                 (format "Failed to create session:\n%s"
                         (or (plist-get create-result :error)
-                            (plist-get create-result :raw))))))
+                            (plist-get create-result :raw)
+                            "unknown CLI error")))))
          (let* ((session-data (plist-get create-result :data))
-                (session-id (plist-get session-data :id)))
+                ;; The CLI has returned both a flat object and a wrapped
+                ;; session object across versions.  Accept either shape.
+                (session (or (plist-get session-data :session)
+                             session-data))
+                (session-id (or (plist-get session :id)
+                                (plist-get session :session_id))))
            (orchid-log "[open-new] created %s" session-id)
-           (when (buffer-live-p buffer)
+           (if (not session-id)
+               (when (buffer-live-p buffer)
+                 (with-current-buffer buffer
+                   (orchid-chat-insert-system-message
+                    (format "Failed to create session: response had no id:\n%s"
+                            (or (plist-get create-result :raw) create-result)))))
+             (when (buffer-live-p buffer)
              (with-current-buffer buffer
                (orchid-chat--open-new-activate
-                session-id buffer workspace-name policy prompt)))))))
+                session-id buffer workspace-name agent prompt))))))))
     buffer))
 
-(defun orchid-chat--open-new-activate (session-id buffer workspace-name policy _prompt)
+(defun orchid-chat--open-new-activate (session-id buffer workspace-name agent _prompt)
   "Activate a freshly created SESSION-ID in BUFFER."
   (require 'session/orchid-session)
   (require 'orchid-log)
   (let* ((session (orchid-session--read-metadata session-id))
-         (policy-name (or policy (plist-get session :policy)))
+         (agent-name (or agent (plist-get session :agent)))
          (label (when workspace-name
-                  (if policy-name
-                      (format "%s-%s" (downcase policy-name) workspace-name)
+                  (if agent-name
+                      (format "%s-%s" (downcase agent-name) workspace-name)
                     workspace-name))))
     (orchid-session-register session)
     (setq orchid-chat--session-id session-id)
@@ -148,7 +160,7 @@
     (orchid-chat--setup-buffer session-id session-id)
     (rename-buffer
      (format "*orchid-chat-%s-%s-%s*"
-             (downcase (or policy "default"))
+             (downcase (or agent "default"))
              (downcase workspace-name)
              (substring session-id (max 0 (- (length session-id) 5))))
      t)

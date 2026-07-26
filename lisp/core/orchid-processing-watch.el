@@ -32,7 +32,10 @@
 (declare-function orchid-processing--update-display "orchid-processing-indicator" ())
 (declare-function orchid-processing-stop "orchid-processing-indicator" ())
 (declare-function orchid-processing-update-token-estimate "orchid-processing-indicator" (estimate))
-(declare-function orchid-processing--refresh-chunk-count "orchid-processing-indicator" ())
+(declare-function orchid-processing--terminal-status-p "orchid-processing-indicator" (status))
+(declare-function orchid-processing--read-state-value "orchid-processing-indicator" (session-id &rest keys))
+(declare-function orchid-log-get-buffer "orchid-log" (session-id))
+(declare-function orchid-log-flush "orchid-log" (session-id))
 
 (defun orchid-processing--on-metadata-change (_event)
   "Handle metadata.json change event.
@@ -40,28 +43,30 @@ Called by file-notify when metadata.json is written."
   (when (and orchid-processing--marker
              (marker-buffer orchid-processing--marker)
              (not orchid-processing--finished))
-    (let* ((metadata (orchid-processing--read-metadata orchid-processing--session-id))
-           (status  (plist-get metadata :status))
+    (let* ((status (orchid-processing--read-status orchid-processing--session-id))
            (running (equal status "running"))
-           (tokens  (plist-get metadata :token_estimate)))
-      (when (integerp tokens)
+           (terminal (orchid-processing--terminal-status-p status))
+           (tokens (orchid-processing--read-state-value
+                    orchid-processing--session-id :token_estimate)))
+      (orchid-processing--refresh-chunk-count)
+      (when (numberp tokens)
         (orchid-processing-update-token-estimate tokens))
       (when running
         (setq orchid-processing--seen-running t))
       (orchid-session-notify-status-change orchid-processing--session-id running)
-      (when (and orchid-processing--seen-running (not running))
-        (orchid-log "Process finished after %ds" (orchid-processing--elapsed-seconds))
+      (when (and orchid-processing--seen-running terminal)
+        (orchid-log "Process finished after %ds status=%s"
+                    (orchid-processing--elapsed-seconds) status)
         (setq orchid-processing--finished t)
         (setq orchid-processing--status-message nil)
         (orchid-processing--update-display)
+        (orchid-log-flush orchid-processing--session-id)
         (orchid-processing-stop)))))
 
 (defun orchid-processing--attach-metadata-watch (metadata-path buf session-id attempt)
   "Attach file-notify watch on the session directory for BUF and SESSION-ID.
-  METADATA-PATH is the full path to state.json.
-Watches the directory rather than the file so kqueue doesn't lose the watch
-when orchid rewrites metadata.json via atomic rename.
-If the directory does not exist yet, retry up to 20 times at 1s intervals."
+METADATA-PATH is the full path to metadata.json.
+Watches the directory so atomic metadata.json rewrites do not lose the watch."
   (let ((session-dir (file-name-directory metadata-path)))
     (cond
      ((file-exists-p session-dir)
@@ -71,11 +76,13 @@ If the directory does not exist yet, retry up to 20 times at 1s intervals."
                 (file-notify-add-watch
                  session-dir '(change)
                  (lambda (event)
-                   (let ((f2 (file-name-nondirectory (or (nth 2 event) "")))
-                         (f3 (file-name-nondirectory (or (nth 3 event) ""))))
+                   (let ((f2 (when (stringp (nth 2 event))
+                               (file-name-nondirectory (nth 2 event))))
+                         (f3 (when (stringp (nth 3 event))
+                               (file-name-nondirectory (nth 3 event)))))
                      (when (and (buffer-live-p buf)
-                                (or (string-equal "state.json" f2)
-                                    (string-equal "state.json" f3)))
+                                (or (string-equal "metadata.json" f2)
+                                    (string-equal "metadata.json" f3)))
                        (with-current-buffer buf
                          (orchid-processing--on-metadata-change event))))))))))
      ((< attempt 20)
