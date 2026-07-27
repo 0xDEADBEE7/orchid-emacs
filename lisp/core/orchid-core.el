@@ -158,16 +158,33 @@ Returns the process object."
                       (orchid-core--normalize-result
                        (orchid-core--make-result exit-code output duration))))))))))
 
+(defun orchid-core--resource-name (value &optional fallback)
+  "Return a display name from a CLI resource VALUE."
+  (cond
+   ((stringp value) value)
+   ((listp value) (or (plist-get value :name) fallback))
+   (t fallback)))
+
 (defun orchid-core--normalize-session (session)
   "Flatten a simplified-harness session into the client's session plist."
-  (let ((metadata (or (plist-get session :metadata) session))
-        (state (plist-get session :state)))
-    (append metadata
-            (when state
-              (list :status (plist-get state :status)
-                    :pid (plist-get state :pid)
-                    :last_message (plist-get state :last_message)
-                    :running (equal (plist-get state :status) "running"))))))
+  (let* ((metadata (copy-sequence (or (plist-get session :metadata) session)))
+         (state (plist-get session :state))
+         (agent (plist-get metadata :agent))
+         (policy (and (listp agent) (plist-get agent :policy)))
+         (prompt (and (listp agent) (plist-get agent :prompt))))
+    (plist-put metadata :agent
+               (orchid-core--resource-name agent "default"))
+    (plist-put metadata :policy
+               (orchid-core--resource-name policy "default"))
+    (when prompt
+      (plist-put metadata :prompt prompt))
+    (when state
+      (plist-put metadata :status (plist-get state :status))
+      (plist-put metadata :pid (plist-get state :pid))
+      (plist-put metadata :last_message (plist-get state :last_message))
+      (plist-put metadata :running
+                 (equal (plist-get state :status) "running")))
+    metadata))
 
 (defun orchid-core--normalize-result (result)
   "Normalize simplified-harness command output for client callers."

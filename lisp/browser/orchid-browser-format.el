@@ -77,7 +77,8 @@ Returns \"N/A\" if timestamp is nil or invalid."
 
 (defun orchid-browser-format-agent (session)
   "Get agent name from SESSION, or the default marker."
-  (or (plist-get session :agent) "default"))
+  (let ((agent (plist-get session :agent)))
+    (if (stringp agent) agent "default")))
 
 (defalias 'orchid-browser-format-policy #'orchid-browser-format-agent)
 
@@ -93,7 +94,7 @@ Returns the final directory component, or \"N/A\" if no working_dir."
 Uses :label if present; otherwise builds <agent>-<workspace-dir>;
 falls back to :id."
   (or (plist-get session :label)
-      (let ((agent (plist-get session :agent))
+      (let ((agent (orchid-browser-format-agent session))
             (workspace-dir (orchid-browser-format-workspace-name session)))
         (when (and agent (not (equal workspace-dir "N/A")))
           (concat agent "-" workspace-dir)))

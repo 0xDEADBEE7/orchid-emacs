@@ -20,19 +20,16 @@
 Each entry is a plist with :session-id, :log-file, :buffer,
 :callback, :last-position, and :seen-events.")
 
-(defun orchid-log--register (session-id log-file buffer callback)
-  "Register monitoring entry for SESSION-ID watching LOG-FILE.
-BUFFER is the log buffer.  CALLBACK is called with each parsed event."
-  (let ((initial-pos (with-current-buffer buffer (point))))
-    (orchid-log "Registering session %s with initial position %d (buffer size: %d)"
-             session-id initial-pos (with-current-buffer buffer (point-max)))
-    (push (list :session-id session-id
-                :log-file log-file
-                :buffer buffer
-                :callback callback
-                :last-position initial-pos
-                :seen-events (make-hash-table :test 'equal))
-          orchid-log--registry)))
+(defun orchid-log--register (session-id log-file buffer callback &optional seen-events)
+  "Register monitoring entry for SESSION-ID.
+SEEN-EVENTS contains IDs already displayed during history restoration."
+  (push (list :session-id session-id
+              :log-file log-file
+              :buffer buffer
+              :callback callback
+              :last-position (with-current-buffer buffer (point))
+              :seen-events (or seen-events (make-hash-table :test 'equal)))
+        orchid-log--registry))
 
 (defun orchid-log--get-entry (session-id)
   "Get monitoring entry for SESSION-ID."

@@ -60,9 +60,10 @@ RUNNING is t when the session is active, nil when idle."
       (condition-case nil
           (with-temp-buffer
             (insert-file-contents path)
-            (json-parse-buffer :object-type 'plist
-                               :array-type 'list
-                               :null-object nil))
+            (orchid-core--normalize-session
+             (json-parse-buffer :object-type 'plist
+                                :array-type 'list
+                                :null-object nil)))
         (error nil)))))
 
 (defun orchid-session--preserve-state (session)

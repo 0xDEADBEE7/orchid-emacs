@@ -20,7 +20,9 @@
 (require 'log/orchid-log-parse)
 (require 'log/orchid-log-monitor)
 
-;;; Customization
+(defvar-local orchid-log--poll-timer nil
+  "Timer used to poll the session event file.")
+
 
 (defgroup orchid-log nil
   "Log monitoring for Orchid."
@@ -92,79 +94,77 @@ Only loads the last N MB (based on orchid-log-restore-max-size-mb)."
               (forward-line 1)
               (delete-region (point-min) (point))))
         (insert-file-contents log-file))
-      (set-visited-file-name log-file t t)
+      ;; The monitor owns file reads; visiting the file would enable global
+      ;; auto-revert and cause competing reloads.
       (set-buffer-modified-p nil)
       (rename-buffer buffer-name t)
       (goto-char (point-max))
       (current-buffer))))
 
 (defun orchid-log--process-new-content (session-id)
-  "Process new content in log buffer for SESSION-ID."
-  (let ((entry (orchid-log--get-entry session-id)))
-    (when entry
-      (let* ((buffer (plist-get entry :buffer))
-             (last-pos (or (plist-get entry :last-position) 1))
-             (callback (plist-get entry :callback)))
-        (with-current-buffer buffer
-          (let ((buffer-size (point-max)))
-            (orchid-log "Processing session %s: last-pos=%d buffer-size=%d"
-                     session-id last-pos buffer-size)
-            (when (> last-pos buffer-size)
-              (orchid-log "WARNING: last-pos (%d) > buffer-size (%d), resetting"
-                       last-pos buffer-size)
-              (setq last-pos 1))
-            (goto-char last-pos)
-            (let ((lines-processed 0))
-              (while (not (eobp))
+  "Process complete lines in the monitor buffer for SESSION-ID.
+The registry's seen-event table makes a full rescan safe."
+  (when-let ((entry (orchid-log--get-entry session-id)))
+    (let ((buffer (plist-get entry :buffer))
+          (callback (plist-get entry :callback)))
+      (with-current-buffer buffer
+        (goto-char (point-min))
+        (let ((lines-processed 0))
+          (while (< (point) (point-max))
+            (let ((line-end (line-end-position)))
+              (when (< line-end (point-max))
                 (let* ((line (buffer-substring-no-properties
-                             (line-beginning-position)
-                             (line-end-position)))
+                              (line-beginning-position) line-end))
                        (result (orchid-log--parse-line-with-id line))
-                       (event-type (when result (plist-get result :type)))
-                       (event-id (when (and result orchid-log--event-deduplication)
-                                   (plist-get result :event-id)))
-                       (is-duplicate (when event-id
-                                       (orchid-log--event-seen-p session-id event-id))))
-                  (cond
-                   (is-duplicate
-                    (orchid-log "Skipping duplicate event: %s" event-id))
-                   ((and result callback)
-                    (let* ((parsed (plist-get result :parsed))
-                           (display-text (plist-get parsed :display))
-                           (has-content (and display-text (not (string-empty-p display-text)))))
-                      (when has-content
+                       (event-id (and result (plist-get result :event-id)))
+                       (is-duplicate (and event-id
+                                          (orchid-log--event-seen-p session-id event-id))))
+                  (unless is-duplicate
+                    (when-let* ((parsed (and result (plist-get result :parsed)))
+                                (display-text (plist-get parsed :display)))
+                      (when (and callback (not (string-empty-p display-text)))
                         (when event-id
-                          (orchid-log "Marking event as seen: %s" event-id)
                           (orchid-log--mark-event-seen session-id event-id))
                         (setq lines-processed (1+ lines-processed))
-                        (let* ((display-len (length display-text))
-                               (preview (substring display-text 0 (min 100 display-len))))
-                          (orchid-log "Event #%d: type=%s id=%s len=%d preview=%S"
-                                   lines-processed event-type (or event-id "NO-ID") display-len preview))
-                        (funcall callback parsed)))))
-                  (forward-line 1)))
-              (orchid-log "Session %s: processed %d lines, new-pos=%d"
-                       session-id lines-processed (point))
-              (orchid-log--set-last-position session-id (point)))))))))
+                        (funcall callback parsed)))))))
+            (forward-line 1))
+          (orchid-log "Session %s: processed %d new lines"
+                      session-id lines-processed))))))
 
-;;; Public API
+(defun orchid-log--poll (session-id buffer)
+  "Read the event file and process complete lines for SESSION-ID.
+This deliberately avoids `revert-buffer' and auto-revert."
+  (when (and (buffer-live-p buffer)
+             (orchid-log-monitoring-p session-id))
+    (condition-case err
+        (with-current-buffer buffer
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert-file-contents (orchid-log--conversation-file session-id)))
+          (orchid-log--process-new-content session-id))
+      (error
+       (orchid-log "Failed to poll log for %s: %s"
+                   session-id (error-message-string err))))))
 
-(defun orchid-log-start-monitoring (session-id callback)
-  "Start monitoring log file for SESSION-ID.
-CALLBACK is called with each new parsed event.
-Returns the log buffer."
+(defun orchid-log-start-monitoring (session-id callback &optional seen-events)
+  "Start monitoring SESSION-ID and call CALLBACK for new events.
+SEEN-EVENTS contains IDs already rendered during history restoration."
   (when (orchid-log-monitoring-p session-id)
     (error "Already monitoring session %s" session-id))
   (let* ((log-file (orchid-log--find-file session-id))
          (buffer (orchid-log--create-buffer session-id log-file)))
     (with-current-buffer buffer
-      (auto-revert-tail-mode 1)
-      (setq-local auto-revert-interval orchid-log-auto-revert-interval)
-      (setq-local auto-revert-verbose nil)
-      (add-hook 'after-revert-hook
-                (lambda () (orchid-log--process-new-content session-id))
-                nil t))
-    (orchid-log--register session-id log-file buffer callback)
+      (when (fboundp 'auto-revert-tail-mode)
+        (auto-revert-tail-mode -1))
+      (when (fboundp 'auto-revert-mode)
+        (auto-revert-mode -1)))
+    (orchid-log--register session-id log-file buffer callback seen-events)
+    (with-current-buffer buffer
+      (setq-local orchid-log--poll-timer
+                    (run-at-time orchid-log-auto-revert-interval
+                                 orchid-log-auto-revert-interval
+                                 #'orchid-log--poll
+                                 session-id buffer)))
     buffer))
 
 (defun orchid-log-stop-monitoring (session-id)
@@ -172,6 +172,10 @@ Returns the log buffer."
   (when-let ((entry (orchid-log--get-entry session-id)))
     (let ((buffer (plist-get entry :buffer)))
       (when (buffer-live-p buffer)
+        (with-current-buffer buffer
+          (when (timerp orchid-log--poll-timer)
+            (cancel-timer orchid-log--poll-timer)
+            (setq orchid-log--poll-timer nil)))
         (kill-buffer buffer)))
     (orchid-log--remove-entry session-id)))
 
@@ -185,17 +189,9 @@ Returns the log buffer."
     (plist-get entry :buffer)))
 
 (defun orchid-log-flush (session-id)
-  "Refresh and process all currently written events for SESSION-ID."
+  "Read and process all currently written events for SESSION-ID."
   (when-let ((buffer (orchid-log-get-buffer session-id)))
-    (when (buffer-live-p buffer)
-      (with-current-buffer buffer
-        (condition-case err
-            (progn
-              (revert-buffer :ignore-auto :noconfirm)
-              (orchid-log--process-new-content session-id))
-          (error
-           (orchid-log "Failed to flush session %s: %s"
-                       session-id (error-message-string err))))))))
+    (orchid-log--poll session-id buffer)))
 (defun orchid-log-show (session-id)
   "Display log buffer for SESSION-ID in a window."
   (interactive "sSession ID: ")

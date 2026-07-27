@@ -23,7 +23,8 @@
 (declare-function orchid-chat--restore-session-history "chat/orchid-chat-session" (session-id buffer))
 (declare-function orchid-chat--finalize-history-display "chat/orchid-chat-session" (event-count process-running))
 (declare-function orchid-chat--setup-process-indicator "chat/orchid-chat-session" (session-id &optional run-started-str))
-(declare-function orchid-chat--start-log-monitoring "chat/orchid-chat-session" (session-id buffer))
+(declare-function orchid-chat--start-log-monitoring "chat/orchid-chat-session"
+                  (session-id buffer &optional seen-events))
 (declare-function orchid-chat--setup-buffer "orchid-chat" (session-id label))
 (declare-function orchid-chat-mode "orchid-chat" ())
 (declare-function orchid-chat--cleanup "chat/orchid-chat-session" ())
@@ -81,7 +82,8 @@
 
       ;; Start log monitoring
       (let ((monitor-start (current-time)))
-        (orchid-chat--start-log-monitoring session-id chat-buffer)
+        (orchid-chat--start-log-monitoring session-id chat-buffer
+                                           orchid-chat--loaded-event-ids)
         (orchid-log "PERF: Monitoring started in %.3fs"
                    (float-time (time-subtract (current-time) monitor-start)))))
 

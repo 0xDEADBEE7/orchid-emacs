@@ -38,7 +38,8 @@
   "Format buffer name for SESSION-ID with SESSION data.
 Format: *orchid-chat-<agent>-<workspace-dir>-<last-5-digits>*
 Uses only the last directory name of the workspace path."
-  (let* ((agent (or (plist-get session :agent) "default"))
+  (let* ((agent-raw (or (plist-get session :agent) "default"))
+         (agent (if (stringp agent-raw) agent-raw "default"))
          (workspace-path (or (plist-get session :working_dir)
                              (plist-get session :workspace)
                              "none"))
@@ -58,13 +59,18 @@ Uses only the last directory name of the workspace path."
   "Format metadata section for SESSION-ID.
 Uses SESSION plist if provided, otherwise fetches from registry."
   (let* ((s (or session (orchid-session-get session-id)))
-         (agent (or (plist-get s :agent) "default"))
+         (agent-raw (plist-get s :agent))
+         (policy-raw (or (plist-get s :policy)
+                         (and (listp agent-raw)
+                              (plist-get agent-raw :policy))))
+         (agent (if (stringp agent-raw) agent-raw "default"))
+         (policy (if (stringp policy-raw) policy-raw "default"))
          (workspace (or (plist-get s :working_dir)
                         (plist-get s :workspace)
                         "N/A")))
     (format "Workspace: %s\nPolicy: %s\n"
-            (propertize workspace 'face 'font-lock-string-face)
-            (propertize agent 'face 'font-lock-keyword-face))))
+            (propertize (format "%s" workspace) 'face 'font-lock-string-face)
+            (propertize policy 'face 'font-lock-keyword-face))))
 
 (defun orchid-chat--cleanup ()
   "Clean up current chat buffer's resources."
@@ -164,12 +170,13 @@ RUN-STARTED-STR is an ISO-8601 timestamp string for the run start time."
     (set-marker-insertion-type orchid-chat--input-marker nil)
     (orchid-chat--init-assistant-cursor (point))))
 
-(defun orchid-chat--start-log-monitoring (session-id buffer)
+(defun orchid-chat--start-log-monitoring (session-id buffer &optional seen-events)
   "Start log monitoring for SESSION-ID, inserting events into BUFFER."
   (orchid-log-start-monitoring
    session-id
    (lambda (parsed-event)
-     (orchid-chat-insert-log-line buffer parsed-event))))
+     (orchid-chat-insert-log-line buffer parsed-event))
+   seen-events))
 
 (require 'chat/orchid-chat-open)
 
