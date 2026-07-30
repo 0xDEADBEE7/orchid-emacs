@@ -102,49 +102,66 @@ Only loads the last N MB (based on orchid-log-restore-max-size-mb)."
       (current-buffer))))
 
 (defun orchid-log--process-new-content (session-id)
-  "Process complete lines in the monitor buffer for SESSION-ID.
-The registry's seen-event table makes a full rescan safe."
+  "Process complete, newly appended lines for SESSION-ID."
   (when-let ((entry (orchid-log--get-entry session-id)))
     (let ((buffer (plist-get entry :buffer))
-          (callback (plist-get entry :callback)))
+          (callback (plist-get entry :callback))
+          (lines-processed 0))
       (with-current-buffer buffer
-        (goto-char (point-min))
-        (let ((lines-processed 0))
-          (while (< (point) (point-max))
-            (let ((line-end (line-end-position)))
-              (when (< line-end (point-max))
-                (let* ((line (buffer-substring-no-properties
-                              (line-beginning-position) line-end))
-                       (result (orchid-log--parse-line-with-id line))
-                       (event-id (and result (plist-get result :event-id)))
-                       (is-duplicate (and event-id
-                                          (orchid-log--event-seen-p session-id event-id))))
-                  (unless is-duplicate
-                    (when-let* ((parsed (and result (plist-get result :parsed)))
-                                (display-text (plist-get parsed :display)))
-                      (when (and callback (not (string-empty-p display-text)))
-                        (when event-id
-                          (orchid-log--mark-event-seen session-id event-id))
-                        (setq lines-processed (1+ lines-processed))
-                        (funcall callback parsed)))))))
-            (forward-line 1))
-          (orchid-log "Session %s: processed %d new lines"
-                      session-id lines-processed))))))
+        (goto-char (or (plist-get entry :last-position) (point-min)))
+        (while (and (< (point) (point-max))
+                    (< (line-end-position) (point-max)))
+          (let* ((line-end (line-end-position))
+                 (line (buffer-substring-no-properties
+                        (line-beginning-position) line-end))
+                 (result (orchid-log--parse-line-with-id line))
+                 (event-id (and result (plist-get result :event-id))))
+            (unless (and event-id
+                         (orchid-log--event-seen-p session-id event-id))
+              (when-let* ((parsed (and result (plist-get result :parsed)))
+                          (display-text (plist-get parsed :display)))
+                (when (and callback (not (string-empty-p display-text)))
+                  (when event-id
+                    (orchid-log--mark-event-seen session-id event-id))
+                  (setq lines-processed (1+ lines-processed))
+                  (funcall callback parsed))))
+            (forward-line 1)))
+        (orchid-log--set-last-position session-id (point)))
+      (when (> lines-processed 0)
+        (orchid-log "Session %s: processed %d new lines"
+                    session-id lines-processed)))))
 
 (defun orchid-log--poll (session-id buffer)
-  "Read the event file and process complete lines for SESSION-ID.
-This deliberately avoids `revert-buffer' and auto-revert."
+  "Read only newly appended event data for SESSION-ID."
   (when (and (buffer-live-p buffer)
              (orchid-log-monitoring-p session-id))
-    (condition-case err
-        (with-current-buffer buffer
-          (let ((inhibit-read-only t))
-            (erase-buffer)
-            (insert-file-contents (orchid-log--conversation-file session-id)))
-          (orchid-log--process-new-content session-id))
-      (error
-       (orchid-log "Failed to poll log for %s: %s"
-                   session-id (error-message-string err))))))
+    (let* ((entry (orchid-log--get-entry session-id))
+           (file (orchid-log--conversation-file session-id))
+           (size (nth 7 (file-attributes file)))
+           (position (or (plist-get entry :file-position) 0)))
+      (condition-case err
+          (cond
+           ((< size position)
+            (with-current-buffer buffer
+              (let ((inhibit-read-only t))
+                (erase-buffer)
+                (insert-file-contents file)))
+            (orchid-log--set-file-position session-id size)
+            (orchid-log--set-last-position session-id 1)
+            (orchid-log--process-new-content session-id))
+           ((> size position)
+            (with-temp-buffer
+              (insert-file-contents file nil position nil)
+              (let ((new-content (buffer-string)))
+                (with-current-buffer buffer
+                  (let ((inhibit-read-only t))
+                    (goto-char (point-max))
+                    (insert new-content)))
+                (orchid-log--set-file-position session-id size)
+                (orchid-log--process-new-content session-id)))))
+        (error
+         (orchid-log "Failed to poll log for %s: %s"
+                     session-id (error-message-string err)))))))
 
 (defun orchid-log-start-monitoring (session-id callback &optional seen-events)
   "Start monitoring SESSION-ID and call CALLBACK for new events.
@@ -158,7 +175,8 @@ SEEN-EVENTS contains IDs already rendered during history restoration."
         (auto-revert-tail-mode -1))
       (when (fboundp 'auto-revert-mode)
         (auto-revert-mode -1)))
-    (orchid-log--register session-id log-file buffer callback seen-events)
+    (orchid-log--register session-id log-file buffer callback seen-events
+                          (nth 7 (file-attributes log-file)))
     (with-current-buffer buffer
       (setq-local orchid-log--poll-timer
                     (run-at-time orchid-log-auto-revert-interval

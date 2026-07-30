@@ -50,7 +50,9 @@ Returns nil if the line cannot be parsed as JSON."
                           (let ((json-null nil))
                             (json-read-from-string line))))
              (type (plist-get json-data :type))
-             (event-id (plist-get json-data :event_id))
+             (event-id (or (plist-get json-data :event_id)
+                           (plist-get json-data :event-id)
+                           (plist-get json-data :uuid)))
              (timestamp (plist-get json-data :timestamp)))
         (let ((parsed (orchid-parser-parse-json-data json-data line)))
           (when parsed

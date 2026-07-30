@@ -12,6 +12,7 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'json)
 (require 'log/orchid-logging)
 
@@ -20,14 +21,19 @@
 Each entry is a plist with :session-id, :log-file, :buffer,
 :callback, :last-position, and :seen-events.")
 
-(defun orchid-log--register (session-id log-file buffer callback &optional seen-events)
+(defun orchid-log--register (session-id log-file buffer callback &optional seen-events file-position)
   "Register monitoring entry for SESSION-ID.
-SEEN-EVENTS contains IDs already displayed during history restoration."
+SEEN-EVENTS contains IDs already displayed during history restoration.
+FILE-POSITION is the byte offset through LOG-FILE already loaded."
   (push (list :session-id session-id
               :log-file log-file
               :buffer buffer
               :callback callback
-              :last-position (with-current-buffer buffer (point))
+              :last-position
+              (with-current-buffer buffer
+                (goto-char (point-max))
+                (if (bolp) (point) (line-beginning-position)))
+              :file-position file-position
               :seen-events (or seen-events (make-hash-table :test 'equal)))
         orchid-log--registry))
 
@@ -45,12 +51,14 @@ SEEN-EVENTS contains IDs already displayed during history restoration."
                    :test #'equal)))
 
 (defun orchid-log--set-last-position (session-id pos)
-  "Update last processed position for SESSION-ID to POS."
+  "Update the character position processed for SESSION-ID."
   (when-let ((entry (orchid-log--get-entry session-id)))
-    (orchid-log "Updating session %s position: %d -> %d"
-             session-id (plist-get entry :last-position) pos)
     (plist-put entry :last-position pos)))
 
+(defun orchid-log--set-file-position (session-id position)
+  "Update the byte position read for SESSION-ID."
+  (when-let ((entry (orchid-log--get-entry session-id)))
+    (plist-put entry :file-position position)))
 (defun orchid-log--event-seen-p (session-id event-id)
   "Check if EVENT-ID has been seen for SESSION-ID."
   (when event-id
