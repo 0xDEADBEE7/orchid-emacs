@@ -115,9 +115,7 @@ Refreshes from CLI and displays in messages buffer."
 ;;;###autoload
 (defun orchid-new-session (&optional agent)
   "Create a new session with optional AGENT."
-  (interactive
-   (let ((agents (or (orchid-session-browser--fetch-agents) '("default"))))
-     (list (completing-read "Agent: " agents nil t))))
+  (interactive (list (orchid-session-browser--read-agent)))
   (require 'orchid-chat)
   (orchid-chat-open-new agent))
 

@@ -59,12 +59,35 @@
   (when orchid-session-browser--row-strings
     (remhash session-id orchid-session-browser--row-strings)))
 
+(defun orchid-session-browser--agent-name (agent)
+  "Return the name from an AGENT summary or name string."
+  (cond
+   ((stringp agent) agent)
+   ((listp agent) (plist-get agent :name))
+   (t nil)))
+
+(defun orchid-session-browser--agent-names (value)
+  "Extract agent names from VALUE returned by the CLI."
+  (let ((agents (if (and (listp value) (plist-member value :data))
+                    (plist-get (plist-get value :data) :agents)
+                  value)))
+    (delete-dups
+     (delq nil (mapcar #'orchid-session-browser--agent-name agents)))))
+
 (defun orchid-session-browser--fetch-agents (&optional callback)
-  "Return configured agent names, optionally asynchronously."
-  (let ((result (orchid-core-list-agents callback)))
-    (when (and result (plist-get result :success))
-      (mapcar (lambda (agent) (plist-get agent :name))
-              (plist-get (plist-get result :data) :agents)))))
+  "Return current agent names from the CLI, optionally asynchronously."
+  (if callback
+      (orchid-core-list-agents
+       (lambda (result)
+         (funcall callback (orchid-session-browser--agent-names result))))
+    (orchid-session-browser--agent-names (orchid-core-list-agents))))
+
+(defun orchid-session-browser--read-agent ()
+  "Prompt for an agent currently available from the CLI."
+  (let ((agents (orchid-session-browser--fetch-agents)))
+    (unless agents
+      (user-error "No agents available; check `orchid agent' and your CLI configuration"))
+    (completing-read "Agent: " agents nil t)))
 
 (defun orchid-session-browser--fetch-prompts (&optional callback)
   "Return the default prompt resource, optionally asynchronously."

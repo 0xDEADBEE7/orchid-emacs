@@ -126,8 +126,7 @@
 (defun orchid-session-browser-new ()
   "Start a new chat session, prompting for agent selection."
   (interactive)
-  (let* ((agents (or (orchid-session-browser--fetch-agents) '("default")))
-         (agent (completing-read "Agent: " agents nil t)))
+  (let ((agent (orchid-session-browser--read-agent)))
     (require 'orchid-chat)
     (orchid-chat-open-new agent)))
 
